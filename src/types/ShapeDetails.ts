@@ -21,6 +21,14 @@ export type PropertyDetails = {
   maxInclusive?: number;
   minExclusive?: number;
   maxExclusive?: number;
+  /** SHACL-authored presentation order for derived editor controls. */
+  order?: number;
+  /** IRI of the SHACL PropertyGroup that owns this property. */
+  group?: string;
+  /** Declared fallback shown without materializing stored data. */
+  defaultValue?: unknown;
+  /** SHACL-fixed value; derived controls must not present it as editable. */
+  hasValue?: { id: string } | string | number | boolean;
   inValues?: { id: string; label: string }[];
 };
 
