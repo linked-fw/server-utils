@@ -5,6 +5,7 @@ import './utils/JSONWriter.js';
 import './utils/LincdServerProxy.js';
 import './utils/RequestData.js';
 import './utils/Server.js';
+import './utils/ServerCallError.js';
 import './utils/ImageResize.js';
 import './utils/ServerPaths.js';
 import './utils/LinkedEmail.js';

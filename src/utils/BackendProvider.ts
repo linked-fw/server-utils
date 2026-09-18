@@ -78,8 +78,9 @@ export class BackendProvider {
         envValue = path.resolve(process.cwd(), envValue);
       }
       try {
-        //require the path defined in the environment variable
-        let envModule = await import(envValue);
+        //require the path defined in the environment variable. The specifier
+        //is only known at runtime, so Vite cannot analyse it — that is intended.
+        let envModule = await import(/* @vite-ignore */ envValue);
         //if the module has a default export, use that
         if (envModule.default) {
           this[field] = envModule.default;

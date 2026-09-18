@@ -8,9 +8,9 @@
   },
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "git+https://github.com/linked-cm/server-utils.git"
   },
-  "version": "1.1.1",
+  "version": "1.2.0",
   "linkedPackage": true,
   "type": "module",
   "main": "lib/esm/index.js",
@@ -42,7 +42,8 @@
     "start": "npm exec linked dev",
     "build": "rimraf ./lib && yarn build-esm && yarn copy-to-lib",
     "build-esm": "echo \"compiling ESM\" && rimraf ./lib/esm && yarn tsc -p tsconfig-esm.json",
-    "copy-to-lib": "echo 'copying CSS + JSON assets to lib folder' && yarn copyfiles -u 1 'src/**/*.css' 'src/**/*.json' lib/esm"
+    "copy-to-lib": "echo 'copying CSS + JSON assets to lib folder' && yarn copyfiles -u 1 'src/**/*.css' 'src/**/*.json' lib/esm",
+    "test": "node --test 'test/*.test.mjs'"
   },
   "keywords": [
     "lincd",

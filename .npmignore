@@ -4,3 +4,4 @@ src
 Gruntfile.js
 tsconfig.json
 tsconfig-es5.json
+test

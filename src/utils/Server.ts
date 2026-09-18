@@ -7,6 +7,7 @@ import { LincdServerProxy } from './LincdServerProxy.js';
 // compile time, so under ESM/Vite it throws "does not provide an export named
 // 'CallConfig'".
 export type { CallConfig } from './LincdServerProxy.js';
+export { ServerCallError } from './ServerCallError.js';
 
 let proxy = process.env.SITE_ROOT
   ? LincdServerProxy.getFromURI(process.env.SITE_ROOT)
@@ -72,6 +73,10 @@ export class Server {
   /**
    * Call a method on the server for this specific shape or package.
    * See the documentation on `Providers` to learn more about implementing server side methods for shapes.
+   *
+   * Pass a `CallConfig` with `rejectOnError: true` as the method to reject with a
+   * `ServerCallError` (carrying `status` and the server's message) when the call
+   * fails. Without it a failed HTTP call resolves `undefined`.
    * @param shape
    * @param method
    * @param args
