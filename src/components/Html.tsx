@@ -93,6 +93,7 @@ export const Html = React.memo<HtmlProps>(
             sizes="57x57"
           />
 
+          {/* Vite injects CSS itself in dev; linking the built main.css double-loads / 404s. */}
           {!assets['__viteDev'] && assets['main.css'] && (
             <link rel="stylesheet" href={assets['main.css']} />
           )}
