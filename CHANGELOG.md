@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.2.1
+
+### Patch Changes
+
+- [#28](https://github.com/linked-fw/server-utils/pull/28) [`7dc41b8`](https://github.com/linked-fw/server-utils/commit/7dc41b87a2cb73f50da4fa0f9b13b8eb600eaa65) Thanks [@flyon](https://github.com/flyon)! - Declare npm as the package manager for this repo, convert the build scripts off `yarn`, and mark `package-lock.json` as a generated file.
+
 ## 1.2.0
 
 ### Minor Changes
