@@ -54,13 +54,13 @@
     "web3"
   ],
   "dependencies": {
-    "@_linked/core": "^2.0.1",
+    "@_linked/core": "^2.21.0",
     "@capacitor/core": "^5.2.2",
     "formidable": "^3.5.1",
     "react-router-dom": "^6.14.2"
   },
   "devDependencies": {
-    "@_linked/cli": "^1.2",
+    "@_linked/cli": "^1.19.0",
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
     "@types/node": "^20.12.7",
