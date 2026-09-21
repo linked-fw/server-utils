@@ -1,6 +1,11 @@
 import React from 'react';
 import { useAppContext } from './AppContext.js';
 import { asset } from '@_linked/core/utils/LinkedFileStorage';
+import {
+  crossOriginProps,
+  cssReadinessScript,
+  getPageOrigin,
+} from '../utils/HtmlAssets.js';
 
 interface HtmlProps extends React.PropsWithChildren {
   title: string;
@@ -33,6 +38,10 @@ export const Html = React.memo<HtmlProps>(
     // Get the matched route key from the request for preloading
     const matchedRouteKey = expressRequest?.['matchedRouteKey'];
 
+    // Release assets can live on another origin (a CDN-hosted release). Those
+    // links need crossorigin; same-origin links must not have it.
+    const pageOrigin = getPageOrigin(expressRequest);
+
     // On the server, render the full HTML document
     return (
       <html lang="en">
@@ -45,11 +54,23 @@ export const Html = React.memo<HtmlProps>(
           />
           {/* Preload JavaScript chunks for matched route */}
           {preloadScripts?.map((href) => (
-            <link key={href} rel="modulepreload" href={href} as="script" />
+            <link
+              key={href}
+              rel="modulepreload"
+              href={href}
+              as="script"
+              {...crossOriginProps(href, pageOrigin)}
+            />
           ))}
           {/* Preload CSS chunks for matched route */}
           {preloadStyles?.map((href) => (
-            <link key={href} rel="preload" href={href} as="style" />
+            <link
+              key={href}
+              rel="preload"
+              href={href}
+              as="style"
+              {...crossOriginProps(href, pageOrigin)}
+            />
           ))}
           {/* Inject route key for client-side preloading */}
           {matchedRouteKey && (
@@ -96,7 +117,12 @@ export const Html = React.memo<HtmlProps>(
           <link rel="stylesheet" href={assets['main.css']} />
           {/* Load route-specific CSS stylesheets */}
           {preloadStyles?.map((href) => (
-            <link key={href} rel="stylesheet" href={href} />
+            <link
+              key={href}
+              rel="stylesheet"
+              href={href}
+              {...crossOriginProps(href, pageOrigin)}
+            />
           ))}
 
           {/* Inline styles for FOUC prevention - show loader until CSS loads */}
@@ -134,70 +160,7 @@ export const Html = React.memo<HtmlProps>(
           {/* Pre-hydration CSS detection script - runs before React loads */}
           <script
             dangerouslySetInnerHTML={{
-              __html: `
-                (function() {
-                  var routeStylesheets = ${JSON.stringify(preloadStyles || [])};
-                  
-                  function checkMainCssLoaded() {
-                    var style = getComputedStyle(document.documentElement);
-                    var primaryColor = style.getPropertyValue('--color-primary-600');
-                    return primaryColor && primaryColor.trim() !== '';
-                  }
-                  
-                  function checkAllStylesheetsLoaded() {
-                    // Check main CSS
-                    if (!checkMainCssLoaded()) {
-                      return false;
-                    }
-                    
-                    // Check if all route-specific stylesheets are loaded
-                    // Extract just the filename from full URLs for comparison
-                    var styleSheets = Array.from(document.styleSheets);
-                    for (var i = 0; i < routeStylesheets.length; i++) {
-                      var routeHref = routeStylesheets[i];
-                      // Extract filename (e.g., "signin.css" from full URL)
-                      var filename = routeHref.split('/').pop();
-                      
-                      var found = styleSheets.some(function(sheet) {
-                        try {
-                          // Check if stylesheet href contains the filename
-                          if (sheet.href && sheet.href.indexOf(filename) !== -1) {
-                            // Try to access cssRules to verify it's loaded and accessible
-                            return sheet.cssRules && sheet.cssRules.length > 0;
-                          }
-                          return false;
-                        } catch (e) {
-                          // CORS or not loaded yet
-                          return false;
-                        }
-                      });
-                      
-                      if (!found) {
-                        return false;
-                      }
-                    }
-                    return true;
-                  }
-                  
-                  function showContent() {
-                    document.documentElement.classList.add('css-ready');
-                  }
-                  
-                  // Poll until all CSS is loaded
-                  var checkInterval = setInterval(function() {
-                    if (checkAllStylesheetsLoaded()) {
-                      showContent();
-                      clearInterval(checkInterval);
-                    }
-                  }, 16); // ~60fps
-                  
-                  // Fallback after 2 seconds
-                  setTimeout(function() {
-                    showContent();
-                    clearInterval(checkInterval);
-                  }, 2000);
-                })();
-              `,
+              __html: cssReadinessScript(preloadStyles || []),
             }}
           />
 
