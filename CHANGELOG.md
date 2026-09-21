@@ -1,5 +1,19 @@
 # @\_linked/server-utils
 
+## 1.3.0
+
+### Minor Changes
+
+- [#30](https://github.com/linked-fw/server-utils/pull/30) [`056622e`](https://github.com/linked-fw/server-utils/commit/056622ed5120d5876ac28d26418c189d6a9f1aee) Thanks [@flyon](https://github.com/flyon)! - Html: add `crossorigin="anonymous"` to route asset links whose origin differs
+  from the page's, so releases served from a CDN preload and load correctly. The
+  preload and the stylesheet for one href always make the same decision, so a
+  cross-origin stylesheet is never fetched twice. Same-origin hrefs are rendered
+  exactly as before — nothing changes for apps that serve their own assets.
+
+  The pre-hydration CSS check now treats a `SecurityError` from `sheet.cssRules`
+  as "ready" instead of "not ready": a cross-origin sheet without CORS can never
+  be inspected, and waiting on it only held the loader up until the 2s fallback.
+
 ## 1.2.1
 
 ### Patch Changes
