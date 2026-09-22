@@ -1,5 +1,19 @@
 # @\_linked/server-utils
 
+## 1.4.1
+
+### Patch Changes
+
+- [#35](https://github.com/linked-fw/server-utils/pull/35) [`7020486`](https://github.com/linked-fw/server-utils/commit/70204869d8a7e5deeaf7b00e9ddccaf73182941e) Thanks [@flyon](https://github.com/flyon)! - Compile the whole `src` folder, and let a bare import resolve under Node10.
+
+  The build only emitted what an entry transitively reached, so any module
+  nothing imported was never built — and never type-checked, so it rotted
+  quietly. `include` now covers `src/**/*` with tests excluded explicitly.
+
+  `typesVersions` maps every specifier through `lib/esm/*`, so a `types` value
+  that already carried that prefix had it applied twice and no consumer on
+  classic Node10 resolution could `import` the package by its bare name.
+
 ## 1.4.0
 
 ### Minor Changes
