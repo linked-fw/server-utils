@@ -1,12 +1,25 @@
 /**
  * Shape metadata types for CMS UI.
  * These types describe shape structure for frontend display — no graph-runtime dependency.
+ *
+ * `PathExpr` is imported as a TYPE only, which keeps that property true at runtime:
+ * nothing from `@_linked/core` is loaded. It is re-exported because consumers
+ * (e.g. `@_linked/documents`) already import it from this module.
  */
+import type {PathExpr} from '@_linked/core/paths/PropertyPathExpr';
+
+export type {PathExpr};
 
 export type PropertyDetails = {
   id: string;
   label: string;
-  path: { id: string } | { id: string }[];
+  /**
+   * A SHACL property path. `PathExpr` covers a bare IRI string, a `{id}` node
+   * reference, and the composite forms (`seq`, `alt`, `inv`, …). It replaces an
+   * older `{id} | {id}[]`, whose bare-array arm had no callers and no `PathExpr`
+   * equivalent — a sequence is spelled `{seq: [...]}`.
+   */
+  path: PathExpr;
   valueShape?: { id: string };
   datatype?: { id: string };
   description: string;

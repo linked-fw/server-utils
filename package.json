@@ -8,14 +8,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/linked-cm/server-utils.git"
+    "url": "git+https://github.com/linked-fw/server-utils.git"
   },
-  "version": "1.2.0",
+  "version": "1.4.1",
+  "packageManager": "npm@11.19.1",
   "linkedPackage": true,
   "type": "module",
   "main": "lib/esm/index.js",
   "module": "lib/esm/index.js",
-  "types": "./lib/esm/index.d.ts",
+  "types": "index.d.ts",
   "exports": {
     ".": {
       "types": "./lib/esm/index.d.ts",
@@ -40,9 +41,9 @@
   "license": "ISC",
   "scripts": {
     "start": "npm exec linked dev",
-    "build": "rimraf ./lib && yarn build-esm && yarn copy-to-lib",
-    "build-esm": "echo \"compiling ESM\" && rimraf ./lib/esm && yarn tsc -p tsconfig-esm.json",
-    "copy-to-lib": "echo 'copying CSS + JSON assets to lib folder' && yarn copyfiles -u 1 'src/**/*.css' 'src/**/*.json' lib/esm",
+    "build": "rimraf ./lib && npm run build-esm && npm run copy-to-lib",
+    "build-esm": "echo \"compiling ESM\" && rimraf ./lib/esm && tsc -p tsconfig-esm.json",
+    "copy-to-lib": "echo 'copying CSS + JSON assets to lib folder' && copyfiles -u 1 'src/**/*.css' 'src/**/*.json' lib/esm",
     "test": "node --test 'test/*.test.mjs'"
   },
   "keywords": [
@@ -53,13 +54,13 @@
     "web3"
   ],
   "dependencies": {
-    "@_linked/core": "^2.0.1",
+    "@_linked/core": "^2.21.0",
     "@capacitor/core": "^5.2.2",
     "formidable": "^3.5.1",
     "react-router-dom": "^6.14.2"
   },
   "devDependencies": {
-    "@_linked/cli": "^1.2",
+    "@_linked/cli": "^1.19.0",
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
     "@types/node": "^20.12.7",
