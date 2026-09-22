@@ -27,11 +27,90 @@ export class BackendProvider {
     const app = this.server;
     const router = app && (app._router ?? app.router);
     const before = router ? router.stack.length : 0;
-    app[method](path, ...handlers);
+    app[method](path, ...handlers.map((h) => this.guardHandler(method, path, h)));
     const after = router ? router.stack.length : before;
     for (let i = before; i < after; i++) {
       this._registeredLayers.push(router.stack[i]);
     }
+  }
+
+  /**
+   * Wrap a route handler so a rejected promise can't silently hang the request.
+   *
+   * We are on Express 4, which IGNORES the promise an `async` handler returns.
+   * A rejection therefore reaches no error handler and nothing ever writes to
+   * the response: the socket stays open until the client times out, with
+   * nothing in the log. It looks like a dead endpoint, not a thrown error.
+   * (LinkedServer's own `/call/*` and `/api/*` routes avoid this by going
+   * through `handleErrorsJson`; provider routes had no equivalent.)
+   *
+   * Two guards:
+   *  - the throw becomes a logged stack + a 500, or `next(err)` for middleware
+   *    which may legitimately be serving something other than JSON;
+   *  - a watchdog logs any request still unanswered after
+   *    `LINKED_ROUTE_WARN_MS` (default 15s, `0` disables). It only WARNS — it
+   *    never ends the response, because streaming endpoints (`/api/chat`) are
+   *    expected to stay open. A handler that neither responds nor throws is
+   *    invisible otherwise; this is what names it.
+   *
+   * Error-handling middleware is identified by arity 4 and left alone —
+   * wrapping would change its arity and stop Express recognising it.
+   */
+  private guardHandler(method: string, routePath: string, handler): any {
+    if (typeof handler !== 'function' || handler.length >= 4) return handler;
+
+    const isMiddleware = method === 'use';
+    const label = `${method.toUpperCase()} ${routePath}`;
+    // A non-numeric override must not silently disable the watchdog.
+    const configured = Number(process.env.LINKED_ROUTE_WARN_MS);
+    const warnAfter = Number.isFinite(configured) ? configured : 15000;
+
+    const guarded = async (req, res, next) => {
+      let watchdog;
+      if (warnAfter > 0) {
+        watchdog = setTimeout(() => {
+          console.warn(
+            `[linked] ${label} has not responded after ${warnAfter}ms ` +
+              `(${req?.originalUrl ?? routePath}). The handler neither ` +
+              `responded nor threw — the request is hanging.`
+          );
+        }, warnAfter);
+        watchdog.unref?.();
+        // A route owns the response, so watch until the response actually
+        // ends — that catches both "never settled" and "settled without
+        // responding". Middleware only owns its own turn: it is done once it
+        // has called next(), and staying armed until the response finishes
+        // would make every `use` layer in the chain warn about a route's hang.
+        if (!isMiddleware) {
+          res.on('finish', () => clearTimeout(watchdog));
+          res.on('close', () => clearTimeout(watchdog));
+        }
+      }
+      try {
+        return await handler(req, res, next);
+      } catch (err) {
+        clearTimeout(watchdog);
+        console.error(
+          `[linked] ${label} failed:`,
+          err?.stack ?? err
+        );
+        if (res?.headersSent) return;
+        if (isMiddleware) return next(err);
+        res?.status(500).json({
+          error: 'internal server error',
+          route: label,
+        });
+      } finally {
+        // Middleware is finished when its turn is: clearing here keeps a
+        // hanging ROUTE from being reported once per upstream `use` layer.
+        if (isMiddleware) clearTimeout(watchdog);
+      }
+    };
+    // Keep the original name in stack traces and express debug output.
+    Object.defineProperty(guarded, 'name', {
+      value: handler.name || 'guardedHandler',
+    });
+    return guarded;
   }
 
   /**

@@ -1,23 +1,34 @@
 /**
- * Shape metadata types for CMS UI.
- * These types describe shape structure for frontend display — no graph-runtime dependency.
+ * Shape metadata — the versioned description of a project's shapes.
  *
- * `PathExpr` is imported as a TYPE only, which keeps that property true at runtime:
- * nothing from `@_linked/core` is loaded. It is re-exported because consumers
- * (e.g. `@_linked/documents`) already import it from this module.
+ * Originally written for CMS UI display. As of plan-035 this is ALSO the extraction contract's
+ * shape catalog: `FieldGraphInput.shapes` and `ExtractionSubmission.shapes` are `ShapeDetails[]`,
+ * and an external extraction provider (ISA) is built against it. So it is a versioned contract,
+ * not an internal view model — adding a field is fine, changing or removing one is a breaking
+ * change for a third party and needs the same treatment as a `field-graph/v1` change.
+ *
+ * Still no graph-runtime dependency: these are plain, JSON-safe objects. The one structured
+ * value is `PropertyDetails.path`, a `PathExpr` — itself a plain discriminated union, imported
+ * as a TYPE only so nothing from `@_linked/core` is loaded at runtime. `PathExpr` is re-exported
+ * here because consumers (e.g. `@_linked/documents`) already import it from this module.
  */
 import type {PathExpr} from '@_linked/core/paths/PropertyPathExpr';
 
 export type {PathExpr};
 
 export type PropertyDetails = {
+  /** The `sh:PropertyShape` NODE's IRI. NOT the predicate — see `path`. */
   id: string;
   label: string;
   /**
-   * A SHACL property path. `PathExpr` covers a bare IRI string, a `{id}` node
-   * reference, and the composite forms (`seq`, `alt`, `inv`, …). It replaces an
-   * older `{id} | {id}[]`, whose bare-array arm had no callers and no `PathExpr`
-   * equivalent — a sequence is spelled `{seq: [...]}`.
+   * The full SHACL property path, at any complexity: a bare predicate IRI string, a `{id}` node
+   * reference, a sequence, an alternative, an inverse, or a cardinality operator.
+   *
+   * Was `{id} | {id}[]`, which could not express inverse/alternative/cardinality at all and was
+   * ambiguous between "a sequence" and "several paths" — and whose bare-array arm had no callers
+   * and no `PathExpr` equivalent (a sequence is spelled `{seq: [...]}`). Consumers that need a
+   * scalar identity for a property use `canonicalPathKey(path)`; NEVER use `id`, which names the
+   * property-shape node rather than what it points at.
    */
   path: PathExpr;
   valueShape?: { id: string };

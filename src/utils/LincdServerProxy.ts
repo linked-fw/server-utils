@@ -104,6 +104,20 @@ export class LincdServerProxy {
     }
   }
 
+  /**
+   * The action dispatched when the server says the caller is not authenticated.
+   *
+   * Until now a 401/403 took the `else` branch below, which `console.warn`s and returns
+   * `undefined` — so an expired session arrived at the caller as *no data*, indistinguishable
+   * from "there is nothing here". That is how a signed-out user gets an empty page instead of a
+   * sign-in screen, and how a failed call gets read as an empty result.
+   *
+   * It is dispatched through the existing action-handler registry rather than by navigating from
+   * here: this file has no router, and a host that wants different behaviour (a modal, a silent
+   * token refresh) registers its own handler and calls `preventDefault`.
+   */
+  static UNAUTHENTICATED_ACTION = 'unauthenticated';
+
   static registerActionHandler(actionName: string, handler: ActionHandler) {
     const handlers = this.actionHandlers.get(actionName) || [];
     handlers.push(handler);
@@ -172,6 +186,9 @@ export class LincdServerProxy {
         if (res.ok) {
           return res.json();
         } else {
+          if (res.status === 401 || res.status === 403) {
+            this.handleResponseAction(LincdServerProxy.UNAUTHENTICATED_ACTION);
+          }
           console.warn('Could not complete server call: ' + res.statusText);
           throw new Error(`Could not complete server call: ${res.statusText}`);
         }
@@ -402,9 +419,28 @@ export class LincdServerProxy {
               });
           });
         } else {
+          if (res.status === 401 || res.status === 403) {
+            this.handleResponseAction(LincdServerProxy.UNAUTHENTICATED_ACTION);
+          }
           console.warn('Could not complete server call: ' + res.statusText);
           if (rejectOnError) {
             throw await this.toServerCallError(res);
+          }
+          /**
+           * Without the opt-in, an AUTH failure still must not resolve as `undefined`.
+           *
+           * Returning nothing is what let a 401 read as an empty result all the way up into the
+           * UI, where "no documents" and "we could not ask" render identically. Deliberately
+           * narrowed to 401/403 rather than every non-ok status: this path has always resolved
+           * `undefined` for 4xx/5xx and callers across every package are written against that,
+           * so widening it here would turn each of them into an unhandled rejection. The other
+           * statuses keep their existing (poor, but relied-upon) contract until someone audits
+           * the callers.
+           */
+          if (res.status === 401 || res.status === 403) {
+            throw new Error(
+              `Not authenticated: ${res.status} ${res.statusText}`
+            );
           }
         }
       })

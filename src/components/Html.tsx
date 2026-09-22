@@ -128,6 +128,20 @@ export const Html = React.memo<HtmlProps>(
             />
           ))}
 
+          {/* Inline the SSR-collected CSS so the page is fully styled at
+              first paint. In Vite dev mode `main.css` is not a real build
+              artifact and theme/component CSS is otherwise injected by
+              Vite's runtime only after hydration, which caused a flash of
+              partially-styled content on hard refresh. This inline block
+              closes that gap (and makes the css-ready gate lift instantly).
+              In production this is empty — the static main.css handles it. */}
+          {assets['__viteSsrCss'] ? (
+            <style
+              id="ssr-css"
+              dangerouslySetInnerHTML={{ __html: assets['__viteSsrCss'] }}
+            />
+          ) : null}
+
           {/* Inline styles for FOUC prevention - show loader until CSS loads */}
           <style
             dangerouslySetInnerHTML={{
