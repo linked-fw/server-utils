@@ -1,5 +1,15 @@
 # @\_linked/server-utils
 
+## 1.4.2
+
+### Patch Changes
+
+- [#22](https://github.com/linked-fw/server-utils/pull/22) [`7403d81`](https://github.com/linked-fw/server-utils/commit/7403d81a5a1b4f81eeeaf2f07ab5a0761e5a11c0) Thanks [@abdipramana](https://github.com/abdipramana)! - ## Skip built CSS link during Vite development
+
+  `Html` no longer injects `<link rel="stylesheet" href={assets['main.css']}>` when `assets['__viteDev']` is set. Vite already injects CSS in development; the built stylesheet link caused double-loading / broken asset paths.
+
+  Also drops `.js` from bare `@_linked/core` type import paths in checked-in `.d.ts` files.
+
 ## 1.4.1
 
 ### Patch Changes
