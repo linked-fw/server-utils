@@ -16,7 +16,7 @@
   "type": "module",
   "main": "lib/esm/index.js",
   "module": "lib/esm/index.js",
-  "types": "./lib/esm/index.d.ts",
+  "types": "index.d.ts",
   "exports": {
     ".": {
       "types": "./lib/esm/index.d.ts",
