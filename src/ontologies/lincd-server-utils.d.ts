@@ -22,12 +22,12 @@ export declare var loadData: () => Promise<{
 /**
  * The namespace of this ontology, which can be used to create NamedNodes with URI's not listed in this file
  */
-export declare var ns: (term: string) => import("@_linked/core/utils/NodeReference.js").NodeReferenceValue;
+export declare var ns: (term: string) => import("@_linked/core/utils/NodeReference").NodeReferenceValue;
 /**
  * The NamedNode of the ontology itself
  */
-export declare var _self: import("@_linked/core/utils/NodeReference.js").NodeReferenceValue;
-export declare var Lincd_API_Client: import("@_linked/core/utils/NodeReference.js").NodeReferenceValue;
+export declare var _self: import("@_linked/core/utils/NodeReference").NodeReferenceValue;
+export declare var Lincd_API_Client: import("@_linked/core/utils/NodeReference").NodeReferenceValue;
 export declare const lincdServerUtils: {
-    Lincd_API_Client: import("@_linked/core/utils/NodeReference.js").NodeReferenceValue;
+    Lincd_API_Client: import("@_linked/core/utils/NodeReference").NodeReferenceValue;
 };
