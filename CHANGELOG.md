@@ -1,5 +1,62 @@
 # @\_linked/server-utils
 
+## 1.4.1
+
+### Patch Changes
+
+- [#35](https://github.com/linked-fw/server-utils/pull/35) [`7020486`](https://github.com/linked-fw/server-utils/commit/70204869d8a7e5deeaf7b00e9ddccaf73182941e) Thanks [@flyon](https://github.com/flyon)! - Compile the whole `src` folder, and let a bare import resolve under Node10.
+
+  The build only emitted what an entry transitively reached, so any module
+  nothing imported was never built — and never type-checked, so it rotted
+  quietly. `include` now covers `src/**/*` with tests excluded explicitly.
+
+  `typesVersions` maps every specifier through `lib/esm/*`, so a `types` value
+  that already carried that prefix had it applied twice and no consumer on
+  classic Node10 resolution could `import` the package by its bare name.
+
+## 1.4.0
+
+### Minor Changes
+
+- [#33](https://github.com/linked-fw/server-utils/pull/33) [`bd7c7a3`](https://github.com/linked-fw/server-utils/commit/bd7c7a3b121392585026cf2aed74e57b4584b5a8) Thanks [@flyon](https://github.com/flyon)! - `PropertyDetails.path` is now `PathExpr` from `@_linked/core`.
+
+  It was `{id: string} | {id: string}[]`, which had drifted out of step with core:
+  every consumer passes the path to core helpers (`canonicalPathKey`,
+  `normalizePropertyPath`) that take a `PathExpr`, and did so behind casts because
+  the declared type did not match. `PathExpr` also admits a bare IRI string, which
+  is what the SPARQL readers actually produce.
+
+  `PathExpr` is re-exported from `types/ShapeDetails` — `@_linked/documents` already
+  imported it from here, an import that could not resolve before.
+
+  Technically breaking for anyone hand-constructing a `PropertyDetails` with the
+  array form `[{id}, {id}]`, which has no `PathExpr` equivalent (a sequence is
+  `{seq: [...]}`). A survey found no such caller: nothing in the ecosystem builds or
+  reads a path array. Every other previously-valid value stays valid, and values
+  that were already being passed — bare strings — become valid for the first time.
+
+  Imported as a TYPE only, so the module still loads no graph runtime.
+
+## 1.3.0
+
+### Minor Changes
+
+- [#30](https://github.com/linked-fw/server-utils/pull/30) [`056622e`](https://github.com/linked-fw/server-utils/commit/056622ed5120d5876ac28d26418c189d6a9f1aee) Thanks [@flyon](https://github.com/flyon)! - Html: add `crossorigin="anonymous"` to route asset links whose origin differs
+  from the page's, so releases served from a CDN preload and load correctly. The
+  preload and the stylesheet for one href always make the same decision, so a
+  cross-origin stylesheet is never fetched twice. Same-origin hrefs are rendered
+  exactly as before — nothing changes for apps that serve their own assets.
+
+  The pre-hydration CSS check now treats a `SecurityError` from `sheet.cssRules`
+  as "ready" instead of "not ready": a cross-origin sheet without CORS can never
+  be inspected, and waiting on it only held the loader up until the 2s fallback.
+
+## 1.2.1
+
+### Patch Changes
+
+- [#28](https://github.com/linked-fw/server-utils/pull/28) [`7dc41b8`](https://github.com/linked-fw/server-utils/commit/7dc41b87a2cb73f50da4fa0f9b13b8eb600eaa65) Thanks [@flyon](https://github.com/flyon)! - Declare npm as the package manager for this repo, convert the build scripts off `yarn`, and mark `package-lock.json` as a generated file.
+
 ## 1.2.0
 
 ### Minor Changes

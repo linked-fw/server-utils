@@ -2,14 +2,12 @@
  * Shape metadata types for CMS UI.
  * These types describe shape structure for frontend display — no graph-runtime dependency.
  */
+import type { PathExpr } from '@_linked/core/paths/PropertyPathExpr';
+export type { PathExpr };
 export type PropertyDetails = {
     id: string;
     label: string;
-    path: {
-        id: string;
-    } | {
-        id: string;
-    }[];
+    path: PathExpr;
     valueShape?: {
         id: string;
     };
