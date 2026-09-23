@@ -1,25 +1,14 @@
 ---
-'@_linked/server-utils': patch
 ---
 
-`BackendProvider` now declares `registerRoute` and `disposeRoutes`.
+No change to the published package.
 
-Both have existed on the class for some time, but `BackendProvider.d.ts` is
-hand-written and shadows `BackendProvider.ts`, so it never gained them.
-Consumers saw a type missing methods the class actually has:
+`src/` is not in the published files, and `lib/esm/utils/BackendProvider.d.ts`
+is emitted from the source, so it has always declared `registerRoute` and
+`disposeRoutes` correctly. The hand-written `src/utils/BackendProvider.d.ts`
+this fixes shadows the source only for consumers that resolve through the
+`development` condition — workspace and in-repo builds. Those were broken; npm
+consumers never were.
 
-```ts
-class AuthProvider extends BackendProvider {
-  setupBeforeControllers() {
-    // previously: "Property 'registerRoute' does not exist on type ..."
-    this.registerRoute('get', '/auth/dev', (req, res) => res.send('ok'));
-  }
-  dispose() {
-    this.disposeRoutes();
-  }
-}
-```
-
-No runtime behaviour changes — this is a declaration catching up with the
-implementation. The file is flagged for deletion in favour of emitted
-declarations, which is tracked separately.
+Recorded as an empty changeset so the release stays honest rather than cutting
+a version whose artifact is byte-identical.
