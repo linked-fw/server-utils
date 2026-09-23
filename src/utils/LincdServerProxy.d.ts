@@ -9,6 +9,13 @@ export interface CallConfig {
      * On a multicore set-up this may end up on a different worker
      */
     forceFetch?: boolean;
+    /**
+     * If true, a failed call rejects with a `ServerCallError` carrying the HTTP
+     * `status` and the server's `{error}` message, instead of resolving `undefined`.
+     * On the backend (local server path) a call that no provider handles rejects
+     * with status 501 and a provider method that throws rejects with status 500.
+     */
+    rejectOnError?: boolean;
 }
 export type ActionHandler = (event: {
     preventDefault: () => void;
