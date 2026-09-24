@@ -1,4 +1,5 @@
 import './shapes/Lincd_API_Client.js';
+import './ontologies/lincd-server-utils.register.js';
 import './utils/Frontend.js';
 import './utils/JSONParser.js';
 import './utils/JSONWriter.js';

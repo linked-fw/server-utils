@@ -1,8 +1,5 @@
 import { Prefix } from '@_linked/core/utils/Prefix';
 import { createNameSpace } from '@_linked/core/utils/NameSpace';
-import { linkedOntology } from '../package.js';
-//import all the exports of this file as one variable called _this (we need this at the end)
-import * as _this from './lincd-server-utils.js';
 
 /**
  * Load the data of this ontology into memory, thus adding the properties of the entities of this ontology to the local graph.
@@ -33,11 +30,3 @@ export const lincdServerUtils = {
   Lincd_API_Client,
 };
 
-//Registers this ontology to LINCD.JS, so that data loading can be automated amongst other things
-linkedOntology(
-  _this,
-  ns,
-  'lincd-server-utils',
-  loadData,
-  '../data/lincd-server-utils.json'
-);
