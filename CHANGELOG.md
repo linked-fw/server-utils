@@ -1,5 +1,20 @@
 # @\_linked/server-utils
 
+## 1.4.5
+
+### Patch Changes
+
+- [#42](https://github.com/linked-fw/server-utils/pull/42) [`e9dab73`](https://github.com/linked-fw/server-utils/commit/e9dab73db27b83d634c7835dfe6ddca77c091666) Thanks [@flyon](https://github.com/flyon)! - The ontology no longer registers by importing itself.
+
+  It carried `import * as _this from './<prefix>.js'` and passed that namespace to
+  `linkedOntology()`. Under `tsc` the self-reference survives; under a bundler it does
+  not — Rollup treats it as a circular import and elides it, so the binding is
+  `undefined` and a consuming app dies at boot with `_this is not defined`.
+
+  Registration now lives in a `<prefix>.register.ts` sibling, imported from the package
+  entry. Nothing changes for consumers: importing this package still registers the
+  ontology.
+
 ## 1.4.4
 
 ### Patch Changes
