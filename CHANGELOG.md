@@ -1,5 +1,15 @@
 # @\_linked/server-utils
 
+## 1.4.6
+
+### Patch Changes
+
+- [#44](https://github.com/linked-fw/server-utils/pull/44) [`d9e3986`](https://github.com/linked-fw/server-utils/commit/d9e39867c306202daa02467fc0e8e52101c7d054) Thanks [@flyon](https://github.com/flyon)! - Stop the ok-branch of `fetchBackend` from destroying the payload it tries to
+  report. It did `res.json().catch(… res.text() …)`, but `json()` has already
+  consumed the stream, so the `text()` threw `body stream already read` and the
+  server's real message was lost. The body is now read once as text and parsed
+  from that, so an unparseable 200 logs its actual content.
+
 ## 1.4.5
 
 ### Patch Changes
