@@ -1,5 +1,20 @@
 # @\_linked/server-utils
 
+## 1.5.0
+
+### Minor Changes
+
+- [#48](https://github.com/linked-fw/server-utils/pull/48) [`733b5d2`](https://github.com/linked-fw/server-utils/commit/733b5d28052f8fa77fb602f2becb6a688665bb01) Thanks [@flyon](https://github.com/flyon)! - Require `@_linked/core@^2.22.8` (was `^2.21.0`), and pin it in the lockfile.
+
+  The declared range was wide enough that the resolved core depended on whatever the
+  consumer — or this repo's own CI, via `package-lock.json` — happened to install. Core
+  decides how a shape's IRI is minted, so a stale core made this package emit legacy
+  `data.lincd.org` IRIs instead of the arch-02 `linked.cm` scheme. Which IRIs a published
+  package produces should not be a function of the installer's dependency tree.
+
+  Minor rather than patch: this raises the minimum core a consumer must resolve, so it
+  changes what gets installed rather than only what this package does internally.
+
 ## 1.4.7
 
 ### Patch Changes
