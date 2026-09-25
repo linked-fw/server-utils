@@ -407,17 +407,19 @@ export class LincdServerProxy {
     })
       .then(async (res) => {
         if (res.ok) {
-          return res.json().catch((err) => {
+          // Read the body ONCE, as text, and parse that. `res.json()` consumes
+          // the stream, so the `res.text()` that used to report an unparseable
+          // payload threw `body stream already read` — the diagnostic destroyed
+          // the very evidence it existed to surface, and the server's real
+          // message never reached anyone.
+          const text = await res.text();
+          try {
+            return JSON.parse(text);
+          } catch (err) {
             console.warn('Could not parse JSON from response: ', err);
-            res
-              .text()
-              .then((text) => {
-                console.warn('Response text: ', text);
-              })
-              .catch((err) => {
-                console.warn('Also could not parse text from response. ', err);
-              });
-          });
+            console.warn('Response text: ', text);
+            return undefined;
+          }
         } else {
           if (res.status === 401 || res.status === 403) {
             this.handleResponseAction(LincdServerProxy.UNAUTHENTICATED_ACTION);
