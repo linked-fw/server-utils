@@ -1,5 +1,18 @@
 # @\_linked/server-utils
 
+## 1.4.7
+
+### Patch Changes
+
+- [#46](https://github.com/linked-fw/server-utils/pull/46) [`0369aaa`](https://github.com/linked-fw/server-utils/commit/0369aaa9dd00191b4d54ae900266a413cf4c5164) Thanks [@flyon](https://github.com/flyon)! - Delete the hand-written `src/utils/Server.d.ts` and `src/utils/LincdServerProxy.d.ts` so the
+  declarations are emitted from the `.ts` sources instead.
+
+  Both files shadowed their own source and had drifted, and because they sit next to the source they
+  were copied over the correctly emitted `lib/esm/**/*.d.ts` on every build. The published types
+  therefore omitted `Server.removeDefaultHeaders`, `LincdServerProxy.removeDefaultHeaders`,
+  `LincdServerProxy.UNAUTHENTICATED_ACTION` and the `ServerCallError` re-export, all of which the
+  implementation has. No runtime code changes; this is a type-surface fix only.
+
 ## 1.4.6
 
 ### Patch Changes
