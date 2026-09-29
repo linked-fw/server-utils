@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.5.1
+
+### Patch Changes
+
+- [#51](https://github.com/linked-fw/server-utils/pull/51) [`f3ba4cd`](https://github.com/linked-fw/server-utils/commit/f3ba4cd4c33ee8815fa96482fabddb85f9e99151) Thanks [@flyon](https://github.com/flyon)! - Sourcemaps now embed their TypeScript source, so consumers no longer see 'points to missing source files' warnings.
+
 ## 1.5.0
 
 ### Minor Changes
