@@ -65,7 +65,7 @@
     "@_linked/cli": "^1.19.0",
     "@babel/preset-env": "^7.24.0",
     "@babel/preset-typescript": "^7.24.0",
-    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.29.8",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.12.7",
