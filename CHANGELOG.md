@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.5.2
+
+### Patch Changes
+
+- [#59](https://github.com/linked-fw/server-utils/pull/59) [`ae8b29e`](https://github.com/linked-fw/server-utils/commit/ae8b29ea22627becc1ad73c4e92943c417498f70) Thanks [@flyon](https://github.com/flyon)! - Add `shapes/index`, a side-effect-only module that registers every shape this package defines and nothing else (no components, no CSS), so `import '@_linked/server-utils/shapes/index'` loads the shapes in plain node as well as in a bundle. The package entry now imports it instead of listing shapes one by one.
+
 ## 1.5.1
 
 ### Patch Changes
