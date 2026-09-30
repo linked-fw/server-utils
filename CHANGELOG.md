@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.5.3
+
+### Patch Changes
+
+- [#65](https://github.com/linked-fw/server-utils/pull/65) [`f704355`](https://github.com/linked-fw/server-utils/commit/f70435582cfb1168c7529c241e470cef115288e6) Thanks [@flyon](https://github.com/flyon)! - Declarations are now always emitted from the source. Twenty-six hand-written `.d.ts` files sat next to the `.ts`/`.tsx` they described; `linked build` copies `src/**/*.d.ts` into `lib/esm` after compiling, so under it they replaced the emitted declarations, and four had drifted — `index` (missing the `shapes/index` and `ServerCallError` imports), `types/RouteConfig`, `types/ShapeDetails` (the old `path` type) and `utils/BackendProvider` (no `registerRoute`). They are deleted; `src/types.d.ts`, the ambient CSS-module declarations, stays.
+
 ## 1.5.2
 
 ### Patch Changes
