@@ -57,7 +57,7 @@
   ],
   "dependencies": {
     "@_linked/core": "^2.22.8",
-    "@capacitor/core": "^5.2.2",
+    "@capacitor/core": "^8.0.0",
     "formidable": "^3.5.1",
     "react-router-dom": "^6.14.2"
   },
