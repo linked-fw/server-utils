@@ -35,6 +35,34 @@ export interface CallConfig {
 
 export type ActionHandler = (event: { preventDefault: () => void }) => void;
 
+/**
+ * Hooks an auth package registers with {@link LincdServerProxy.setAuthHandler} to keep a
+ * session alive around server calls made over HTTP. server-utils knows nothing about tokens:
+ * the handler changes the default headers (`addDefaultHeaders` / `removeDefaultHeaders`), and
+ * the proxy builds each request's headers after the hook has run.
+ */
+export interface AuthHandler {
+  /**
+   * Called before every request is sent. `init` is a preview of the request — to change what
+   * is sent, change the default headers; the request's headers are built after this resolves.
+   * A typical use is refreshing an access token that has already expired.
+   */
+  beforeRequest?(url: string, init: RequestInit): Promise<void> | void;
+  /**
+   * Called when a request is answered with HTTP 401 (not 403). Resolve `true` to send the
+   * request again, once, with the then-current default headers. The retried request's
+   * response goes to the caller as is, so this is never called twice for one call.
+   */
+  onUnauthorized?(url: string, response: Response): Promise<boolean> | boolean;
+}
+
+function sameHeaders(a: Record<string, any>, b: Record<string, any>) {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k])
+  );
+}
+
 function getShapeClass(shape: typeof Shape | Shape) {
   if (shape instanceof Shape) {
     return Object.getPrototypeOf(shape).constructor;
@@ -118,6 +146,22 @@ export class LincdServerProxy {
    */
   static UNAUTHENTICATED_ACTION = 'unauthenticated';
 
+  private static authHandler: AuthHandler | null = null;
+
+  /**
+   * Register the {@link AuthHandler} for every server call made over HTTP (`call`,
+   * `customPost`, `callCustomShapeMethod`). There is one handler; setting another replaces it,
+   * and `null` removes it. Calls made directly against the local server on the backend do not
+   * go through it.
+   */
+  static setAuthHandler(handler: AuthHandler | null) {
+    this.authHandler = handler || null;
+  }
+
+  static getAuthHandler(): AuthHandler | null {
+    return this.authHandler;
+  }
+
   static registerActionHandler(actionName: string, handler: ActionHandler) {
     const handlers = this.actionHandlers.get(actionName) || [];
     handlers.push(handler);
@@ -174,13 +218,21 @@ export class LincdServerProxy {
     let { shapeClass, packageName, shapeURI } = this.parseShape(shape);
 
     //NOTE: custom calls are not going straight to the localServer on nodejs, so that request.body is available.
-    return fetch(
+    //They send the default headers (so they are authenticated like any other call) except the JSON
+    //Content-Type: the body is often FormData, which needs the browser to set its own boundary.
+    //Headers passed by the caller win. Transient failures are not retried, as before.
+    return this.fetchWithAuth(
       `${this.rootUrl}/call/${packageName}/${shapeClass.name}/${methodName}?shapeURI=${shapeURI}`,
-      {
-        method: method,
-        headers: headers || {}, //NOTE: custom shape methods do not use LincdServerProxy.defaultHeaders,
-        body,
-      }
+      () => {
+        const { 'Content-Type': _contentType, ...defaults } =
+          LincdServerProxy.defaultHeaders as Record<string, string>;
+        return {
+          method: method,
+          headers: Object.assign({}, defaults, headers || {}),
+          body,
+        };
+      },
+      0
     )
       .then((res) => {
         if (res.ok) {
@@ -388,6 +440,51 @@ export class LincdServerProxy {
     }
   }
 
+  /**
+   * Send a request through the registered {@link AuthHandler}, if any. `buildInit` is called
+   * for each request actually sent, so a header changed by the handler (a refreshed token)
+   * is picked up.
+   *
+   * A 401 is retried at most once, and only when the handler asks for it — or, without asking,
+   * when the default headers changed while the request was in flight: another call refreshed
+   * the session meanwhile, so the 401 is about headers that are already stale. The retry state
+   * is local to this call, so concurrent calls cannot make each other loop; making concurrent
+   * refreshes share one round trip is the handler's job.
+   *
+   * Without a handler this is exactly `fetchWithRetry`.
+   */
+  private async fetchWithAuth(
+    url: string,
+    buildInit: () => RequestInit,
+    retries: number = 2
+  ): Promise<Response> {
+    const handler = LincdServerProxy.authHandler;
+    if (!handler) {
+      return this.fetchWithRetry(url, buildInit(), retries);
+    }
+    if (handler.beforeRequest) {
+      try {
+        await handler.beforeRequest(url, buildInit());
+      } catch (err) {
+        console.warn('Auth handler beforeRequest failed: ', err);
+      }
+    }
+    const sentDefaults = { ...LincdServerProxy.defaultHeaders };
+    const res = await this.fetchWithRetry(url, buildInit(), retries);
+    if (res.status !== 401) {
+      return res;
+    }
+    let retry = !sameHeaders(sentDefaults, LincdServerProxy.defaultHeaders);
+    if (!retry && handler.onUnauthorized) {
+      try {
+        retry = (await handler.onUnauthorized(url, res)) === true;
+      } catch (err) {
+        console.warn('Auth handler onUnauthorized failed: ', err);
+      }
+    }
+    return retry ? this.fetchWithRetry(url, buildInit(), retries) : res;
+  }
+
   private async fetchBackend(
     url,
     body,
@@ -396,7 +493,7 @@ export class LincdServerProxy {
     overwriteData: boolean = false,
     rejectOnError: boolean = false
   ) {
-    return this.fetchWithRetry(url, {
+    return this.fetchWithAuth(url, () => ({
       method: 'POST',
       headers: Object.assign(
         {},
@@ -404,7 +501,7 @@ export class LincdServerProxy {
         headers || {}
       ),
       body,
-    })
+    }))
       .then(async (res) => {
         if (res.ok) {
           // Read the body ONCE, as text, and parse that. `res.json()` consumes
