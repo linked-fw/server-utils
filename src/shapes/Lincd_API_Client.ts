@@ -1,6 +1,6 @@
 import { Shape } from '@_linked/core/shapes/Shape';
 import { linkedShape } from '../package.js';
-import { lincdServerUtils } from '../ontologies/lincd-server-utils.js';
+import { serverUtils } from '../ontologies/server-utils.js';
 type BuiltQuery = { build?: () => unknown };
 
 function buildQueryObject<T>(query: T | BuiltQuery) {
@@ -12,7 +12,7 @@ function buildQueryObject<T>(query: T | BuiltQuery) {
 
 @linkedShape
 export class Lincd_API_Client extends Shape {
-  static targetClass = lincdServerUtils.Lincd_API_Client;
+  static targetClass = serverUtils.Lincd_API_Client;
 
   static getFromURI(uri: string) {
     return new this(uri);

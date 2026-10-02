@@ -4,15 +4,15 @@
     "owl": "http://www.w3.org/2002/07/owl#",
     "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
-    "lincd-server-utils": "https://linked.cm/ont/server-utils/"
+    "server-utils": "https://linked.cm/ont/server-utils/"
   },
   "@graph": [
     {
-      "@id": "lincd-server-utils:Lincd_API_Client",
+      "@id": "server-utils:Lincd_API_Client",
       "@type": "rdfs:Class",
       "rdfs:comment": "A Client for the data API of LINCD Web Apps",
       "rdfs:isDefinedBy": {
-        "@id": "lincd-server-utils:"
+        "@id": "server-utils:"
       },
       "rdfs:label": "LINCD API Client"
     }

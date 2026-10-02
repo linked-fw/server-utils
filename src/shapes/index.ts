@@ -7,5 +7,5 @@
  * plain node (no CSS, no React tree) as well as in a bundle. The package
  * entry imports it instead of listing shapes itself.
  */
-import '../ontologies/lincd-server-utils.register.js';
+import '../ontologies/server-utils.register.js';
 import './Lincd_API_Client.js';
