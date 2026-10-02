@@ -1,23 +1,5 @@
 /**
- * Registers this ontology.
- *
- * Kept out of `lincd-server-utils.ts` because registration needs that module's whole export
- * namespace, and a module cannot import itself once a bundler is involved: Rollup
- * treats a static self-reference as a circular import and elides it, so the binding is
- * undefined at runtime and the consuming app dies at boot with `_this is not
- * defined`. `tsc` preserves it, which is why the pattern survived for as long as
- * packages were built with `tsc` alone.
- *
- * From a sibling module the same import is ordinary and survives.
+ * @deprecated Import `ontologies/server-utils.register` instead. This path only loads it, so the
+ * ontology is registered once (as `server-utils`) whichever module is imported.
  */
-import * as terms from './lincd-server-utils.js';
-import {loadData, ns} from './lincd-server-utils.js';
-import {linkedOntology} from '../package.js';
-
-linkedOntology(
-  terms,
-  ns,
-  'lincd-server-utils',
-  loadData,
-  '../data/lincd-server-utils.json'
-);
+import './server-utils.register.js';
