@@ -9,7 +9,7 @@ describe('built lib', () => {
     const ctx = await import('../lib/esm/utils/CallContext.js');
     const qa = await import('../lib/esm/utils/QueryAccess.js');
     const bp = await import('../lib/esm/utils/BackendProvider.js');
-    for (const name of ['callable', 'declareCallable', 'getOwnCallableLevel']) {
+    for (const name of ['callable', 'declareCallable', 'getOwnCallableLevel', 'internal', 'declareInternal', 'isDeclaredInternal']) {
       assert.equal(typeof callable[name], 'function', name);
     }
     for (const name of ['getCallContext', 'runWithCallContext', 'runAsSystem', 'currentRequest', 'currentResponse', 'requireSessionUser']) {

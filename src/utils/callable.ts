@@ -18,12 +18,20 @@
  * the base class. A subclass that overrides a declared method therefore has to
  * redeclare it.
  *
+ * `@internal()` (or `declareInternal`) is the opposite: the method is never
+ * dispatched over HTTP, in any exposure mode, while backend-to-backend calls
+ * keep working. An app can use `declareInternal` on a class it imports to block
+ * a method the package itself has not annotated. Unlike a callable declaration,
+ * an internal one is inherited: an override on a subclass stays internal, and it
+ * wins over a callable declaration of the same method.
+ *
  * This module has no imports on purpose: it is safe to load on the client too.
  */
 
 export type CallableLevel = 'public' | 'user';
 
 const CALLABLE_KEY = Symbol.for('@_linked/server-utils:callable');
+const INTERNAL_KEY = Symbol.for('@_linked/server-utils:internal');
 
 const LEVELS: ReadonlySet<string> = new Set(['public', 'user']);
 
@@ -48,6 +56,56 @@ function ownMap(cls: Function, create: boolean): Map<string, CallableLevel> | un
     writable: false,
   });
   return map;
+}
+
+function ownInternalSet(cls: Function, create: boolean): Set<string> | undefined {
+  if (Object.prototype.hasOwnProperty.call(cls, INTERNAL_KEY)) {
+    return (cls as any)[INTERNAL_KEY];
+  }
+  if (!create) return undefined;
+  const set = new Set<string>();
+  Object.defineProperty(cls, INTERNAL_KEY, {
+    value: set,
+    enumerable: false,
+    configurable: true,
+    writable: false,
+  });
+  return set;
+}
+
+/** `cls` and its super classes, nearest first. */
+function classChain(cls: Function): Function[] {
+  const chain: Function[] = [];
+  let c: any = cls;
+  while (typeof c === 'function' && c !== Function.prototype) {
+    chain.push(c);
+    c = Object.getPrototypeOf(c);
+  }
+  return chain;
+}
+
+const warnedConflicts = new Set<string>();
+
+function warnConflict(cls: Function, method: string) {
+  const key = `${cls.name}\u0000${method}`;
+  if (warnedConflicts.has(key)) return;
+  warnedConflicts.add(key);
+  console.warn(
+    `[linked] ${cls.name || 'anonymous class'}.${method} is declared both callable and internal; ` +
+      `internal wins and the method is not dispatched over HTTP`
+  );
+}
+
+/** Warn once when declaring `method` callable on `cls` meets an internal declaration. */
+function checkCallableConflict(cls: Function, method: string) {
+  if (isDeclaredInternal(cls, method)) warnConflict(cls, method);
+}
+
+/** Warn once when declaring `method` internal on `cls` meets a callable declaration. */
+function checkInternalConflict(cls: Function, method: string) {
+  if (classChain(cls).some((c) => ownMap(c, false)?.has(method))) {
+    warnConflict(cls, method);
+  }
 }
 
 function assertInstanceMethod(cls: Function, method: string) {
@@ -102,6 +160,7 @@ export function callable(level: CallableLevel): MethodDecorator {
       throw new TypeError('callable: can only decorate class methods');
     }
     ownMap(cls, true).set(propertyKey, level);
+    checkCallableConflict(cls, propertyKey);
     return descriptor;
   } as MethodDecorator;
 }
@@ -129,6 +188,7 @@ export function declareCallable(
   const map = ownMap(cls, true);
   for (const [method, level] of entries) {
     map.set(method, level);
+    checkCallableConflict(cls, method);
   }
 }
 
@@ -142,4 +202,88 @@ export function getOwnCallableLevel(
 ): CallableLevel | undefined {
   if (typeof cls !== 'function') return undefined;
   return ownMap(cls, false)?.get(method);
+}
+
+/**
+ * Method decorator (legacy `experimentalDecorators` form) declaring a provider
+ * method internal: never dispatched over HTTP, in any exposure mode. Calls from
+ * other backend code still work.
+ *
+ * ```ts
+ * class MyProvider extends BackendProvider {
+ *   @internal()
+ *   resetEverything() { ... }
+ * }
+ * ```
+ */
+export function internal(): MethodDecorator {
+  return function (target: any, propertyKey: string | symbol, descriptor?: any) {
+    if (
+      propertyKey &&
+      typeof propertyKey === 'object' &&
+      'kind' in (propertyKey as any)
+    ) {
+      throw new TypeError(
+        'internal: TC39 decorators are not supported; compile with experimentalDecorators'
+      );
+    }
+    if (typeof target === 'function') {
+      throw new TypeError(
+        `internal: ${target.name}.${String(propertyKey)} is static; only instance methods are dispatched`
+      );
+    }
+    if (typeof propertyKey !== 'string') {
+      throw new TypeError('internal: method names must be strings');
+    }
+    const cls = target?.constructor;
+    if (typeof cls !== 'function' || cls.prototype !== target) {
+      throw new TypeError('internal: can only decorate class methods');
+    }
+    ownInternalSet(cls, true).add(propertyKey);
+    checkInternalConflict(cls, propertyKey);
+    return descriptor;
+  } as MethodDecorator;
+}
+
+/**
+ * Declare methods internal without decorators: in plain JS, or from another
+ * package on a class you import, to block methods its package has not
+ * annotated. The declaration also covers overrides on subclasses, and wins over
+ * a callable declaration of the same method (with a warning).
+ *
+ * ```js
+ * declareInternal(SomeImportedProvider, ['dangerousMethod']);
+ * ```
+ */
+export function declareInternal(cls: Function, methods: string[]): void {
+  if (typeof cls !== 'function') {
+    throw new TypeError('declareInternal: expected a class');
+  }
+  if (!Array.isArray(methods)) {
+    throw new TypeError('declareInternal: expected an array of method names');
+  }
+  for (const method of methods) {
+    if (typeof method !== 'string' || !method) {
+      throw new TypeError('declareInternal: method names must be non-empty strings');
+    }
+    assertInstanceMethod(cls, method);
+  }
+  const set = ownInternalSet(cls, true);
+  for (const method of methods) {
+    set.add(method);
+    checkInternalConflict(cls, method);
+  }
+}
+
+/**
+ * True when `cls` or one of its super classes declares `method` internal.
+ */
+export function isDeclaredInternal(cls: Function, method: string): boolean {
+  if (typeof cls !== 'function') return false;
+  return classChain(cls).some((c) => ownInternalSet(c, false)?.has(method) === true);
+}
+
+/** For tests: forget which callable/internal conflicts were already logged. */
+export function resetCallableConflictWarnings(): void {
+  warnedConflicts.clear();
 }

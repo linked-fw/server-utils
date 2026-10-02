@@ -4,7 +4,7 @@
 
 Declared-callable provider methods, per-call request context, query access registry.
 
-- `utils/callable`: `@callable('public' | 'user')`, `declareCallable(cls, methods)` and `getOwnCallableLevel(cls, method)` declare which provider methods a server may dispatch over RPC.
+- `utils/callable`: `@callable('public' | 'user')`, `declareCallable(cls, methods)` and `getOwnCallableLevel(cls, method)` declare which provider methods a server may dispatch over RPC. `@internal()`, `declareInternal(cls, methods)` and `isDeclaredInternal(cls, method)` mark methods a server must never dispatch over HTTP; the declaration is inherited by subclasses, can be made on a class from another package, and wins over a callable declaration (with a warning).
 - `utils/CallContext` (server-only): an `AsyncLocalStorage` call context with `getCallContext`, `runWithCallContext`, `runAsSystem`, `currentRequest`, `currentResponse` and `requireSessionUser`.
 - `BackendProvider.request`/`response` are now getters over the current call's context, so concurrent calls on a singleton provider no longer share a request. Assigning them still works but warns once per class; `initRequest` is a no-op hook and `callOtherProvider` no longer copies the request. Provider routes registered with `registerRoute` run in the call context.
 - `utils/QueryAccess` (server-only): `registerProtectedShapes`, `registerQueryAuthorizer` and `checkQueryAccess`, the rules for the generic query plane.
