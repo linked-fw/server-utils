@@ -14,9 +14,12 @@ import {
 } from './utils/LinkedLiveUpdates.js';
 import cluster from 'cluster';
 import { Server } from './utils/Server.js';
+import { declareCallable, declareInternal } from './utils/callable.js';
+import { requireSessionUser } from './utils/CallContext.js';
 
 const MAX_BROADCAST_TIME: number = 15 * 60 * 1_000; //15 minutes in ms
 let lastBroadcastTime: number = Date.now();
+const MAX_UPDATES_PER_CALL = 100;
 
 export class LincdServerUtilsBackendProvider extends BackendProvider {
   setupBeforeControllers() {
@@ -105,15 +108,31 @@ export class LincdServerUtilsBackendProvider extends BackendProvider {
     }
   }
 
+  /**
+   * The live updates since `timestamp` that the signed-in caller may see: the
+   * broadcast ones, and those sent to this caller's account. Requires a session.
+   */
   getUpdatesSince(timestamp: number, limit: number = 10): UpdateMessage[] {
-    const filtered = updates.filter((update) => update.timestamp > timestamp);
-
-    // if limit is provided, slice the array to the limit
-    // and return the most recent messages
-    if (limit > 0) {
-      return filtered.slice(-limit);
+    const userAccount = requireSessionUser();
+    const userId =
+      typeof userAccount === 'string' ? userAccount : userAccount?.id;
+    const since = Number.isFinite(Number(timestamp)) ? Number(timestamp) : 0;
+    let max = Math.floor(Number(limit));
+    if (!Number.isFinite(max) || max <= 0 || max > MAX_UPDATES_PER_CALL) {
+      max = MAX_UPDATES_PER_CALL;
     }
-
-    return filtered;
+    const filtered = updates.filter(
+      (update) =>
+        update.timestamp > since &&
+        (update.to === undefined || (userId !== undefined && update.to === userId))
+    );
+    // the most recent messages
+    return filtered.slice(-max);
   }
 }
+
+declareCallable(LincdServerUtilsBackendProvider, {
+  getUpdatesSince: 'user',
+});
+// Boot-time setup, run by setupBeforeControllers; never over HTTP.
+declareInternal(LincdServerUtilsBackendProvider, ['setupLiveUpdatesMulticore']);

@@ -1,8 +1,96 @@
 import path from 'path';
+import {
+  getCallContext,
+  httpCallContext,
+  runWithCallContext,
+  type CallContext,
+} from './CallContext.js';
+
+type Override = { request?: any; response?: any };
+
+// Values assigned to `provider.request`/`provider.response`, per call context
+// and per provider instance. Keyed by the context object, so an assignment
+// lasts as long as the call that made it and is never seen by another call.
+// Kept outside the instance so no class field can collide with the accessors.
+const overridesByContext = new WeakMap<CallContext, WeakMap<object, Override>>();
+const warnedOutsideContext = new Set<string>();
+
+function overridesOf(ctx: CallContext, create: boolean): WeakMap<object, Override> | undefined {
+  let map = overridesByContext.get(ctx);
+  if (!map && create) {
+    map = new WeakMap();
+    overridesByContext.set(ctx, map);
+  }
+  return map;
+}
+
+function warnAssignmentOutsideContext(provider: object, field: string) {
+  const name = provider?.constructor?.name || 'BackendProvider';
+  const key = name + '.' + field;
+  if (warnedOutsideContext.has(key)) return;
+  warnedOutsideContext.add(key);
+  console.warn(
+    `[linked] ${name} assigns this.${field} outside any call; the value is ignored. ` +
+      `Inside a call, this.${field} already is the current call's ${field}.`
+  );
+}
 
 export class BackendProvider {
-  public request;
-  public response;
+  /**
+   * The HTTP request of the call this provider is currently serving.
+   *
+   * Read from the per-call context (see CallContext), so concurrent calls each
+   * see their own request even though the provider is a singleton. Undefined
+   * outside an HTTP call (boot, jobs, backend-to-backend calls made outside a
+   * request).
+   *
+   * Assigning it stores the value in the current call's context, for this
+   * provider instance only: later reads in the same call see it, other calls do
+   * not. Outside any call an assignment is ignored, with a warning.
+   */
+  get request(): any {
+    return this.readField('request');
+  }
+  set request(value: any) {
+    this.assignField('request', value);
+  }
+
+  /** The HTTP response of the current call; see `request`. */
+  get response(): any {
+    return this.readField('response');
+  }
+  set response(value: any) {
+    this.assignField('response', value);
+  }
+
+  private readField(field: 'request' | 'response'): any {
+    const ctx = getCallContext();
+    if (!ctx) return undefined;
+    const override = overridesOf(ctx, false)?.get(this);
+    if (override && field in override) return override[field];
+    return ctx.kind === 'http' ? ctx[field] : undefined;
+  }
+
+  private assignField(field: 'request' | 'response', value: any) {
+    const ctx = getCallContext();
+    if (!ctx) {
+      warnAssignmentOutsideContext(this, field);
+      return;
+    }
+    const overrides = overridesOf(ctx, true)!;
+    let override = overrides.get(this);
+    // `this.request = request` inside an initRequest override assigns what the
+    // context already holds: nothing to store.
+    if (ctx.kind === 'http' && ctx[field] === value) {
+      if (override) delete override[field];
+      return;
+    }
+    if (!override) {
+      override = {};
+      overrides.set(this, override);
+    }
+    override[field] = value;
+  }
 
   // Express router layers this provider added via `registerRoute`, tracked so
   // `disposeRoutes()` can remove them on an HMR reload. Vite re-runs a
@@ -87,7 +175,13 @@ export class BackendProvider {
         }
       }
       try {
-        return await handler(req, res, next);
+        // Every handler runs in the request's http context (one per request,
+        // shared with the server's own layers), so `this.request` inside the
+        // provider is this request, also after an earlier layer resumed from a
+        // callback that had lost the context.
+        return await runWithCallContext(httpCallContext(req, res), () =>
+          handler(req, res, next)
+        );
       } catch (err) {
         clearTimeout(watchdog);
         console.error(
@@ -141,10 +235,13 @@ export class BackendProvider {
     return null;
   }
 
-  initRequest(request, response): Promise<void> | void {
-    this.request = request;
-    this.response = response;
-  }
+  /**
+   * Called for every HTTP call before the method runs. The base implementation
+   * does nothing: the request is available as `this.request` from the per-call
+   * context. Subclasses may still override it (and call `super`) to prepare
+   * request-scoped data, such as reading a session onto `request`.
+   */
+  initRequest(request, response): Promise<void> | void {}
 
   setupBeforeControllers() {}
   setupBeforeCatchAllControllers() {}
@@ -190,11 +287,12 @@ export class BackendProvider {
   protected callOtherProvider<S extends BackendProvider>(
     provider: typeof BackendProvider
   ): S {
-    //init and return a new instance of the given provider with the same request and response
-    let authProvider = new provider(this.server, this.lincdServer);
-    authProvider.request = this.request;
-    authProvider.response = this.response;
-    // authProvider.initRequest(this.request, this.response);
-    return authProvider as S;
+    // A new instance of the given provider. It reads request and response from
+    // the same per-call context as this one, so nothing is copied over.
+    const other = new provider(this.server, this.lincdServer);
+    const ctx = getCallContext();
+    const override = ctx && overridesOf(ctx, false)?.get(this);
+    if (override) overridesOf(ctx, true)!.set(other, { ...override });
+    return other as S;
   }
 }

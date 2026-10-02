@@ -32,6 +32,11 @@ export interface UpdateMessage {
   timestamp: number;
   type: string;
   data: any;
+  /**
+   * The id of the only user account that may receive this update. Without it
+   * the update is a broadcast to every signed-in user.
+   */
+  to?: string;
 }
 export const updates: UpdateMessage[] = [];
 export class LinkedLiveUpdate {
@@ -39,16 +44,26 @@ export class LinkedLiveUpdate {
 
   /**
    * To be used on the backend to send updates to the frontend.
+   * Every signed-in user receives the update, unless `options.to` names the one
+   * user account (by id) that should.
    * @param type
    * @param data
+   * @param options
    */
-  public static send(type: string, data: any): void {
+  public static send(
+    type: string,
+    data: any,
+    options?: { to?: string }
+  ): void {
     //on the backend we store the updates in memory in an exported variable called updates
     const newMessage: UpdateMessage = {
       timestamp: Date.now(),
       type,
       data,
     };
+    if (options?.to) {
+      newMessage.to = options.to;
+    }
     updates.push(newMessage);
 
     //for multicore environments, we batch updates to avoid sending too many messages
@@ -57,6 +72,7 @@ export class LinkedLiveUpdate {
 
   /**
    * To be used on the frontend to get the latest updates from the backend.
+   * Requires a signed-in user; returns at most 100 updates.
    * @param timestamp
    */
   public static getUpdatesSince(
