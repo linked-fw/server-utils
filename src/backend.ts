@@ -14,7 +14,7 @@ import {
 } from './utils/LinkedLiveUpdates.js';
 import cluster from 'cluster';
 import { Server } from './utils/Server.js';
-import { declareCallable } from './utils/callable.js';
+import { declareCallable, declareInternal } from './utils/callable.js';
 import { requireSessionUser } from './utils/CallContext.js';
 
 const MAX_BROADCAST_TIME: number = 15 * 60 * 1_000; //15 minutes in ms
@@ -134,3 +134,5 @@ export class LincdServerUtilsBackendProvider extends BackendProvider {
 declareCallable(LincdServerUtilsBackendProvider, {
   getUpdatesSince: 'user',
 });
+// Boot-time setup, run by setupBeforeControllers; never over HTTP.
+declareInternal(LincdServerUtilsBackendProvider, ['setupLiveUpdatesMulticore']);

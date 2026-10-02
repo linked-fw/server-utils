@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import { registerNodeShape } from '@_linked/core/utils/ShapeClass';
 import {
   checkQueryAccess,
+  collectMutationNodes,
   collectQueryTargets,
+  getProtectedClassIds,
+  getRawQueryAuthorizers,
+  registerRawQueryAuthorizer,
   getProtectedShapeIds,
   getQueryAuthorizers,
   registerProtectedShapes,
@@ -18,16 +22,20 @@ const Secret = NS + 'Secret';
 const SubSecret = NS + 'SubSecret';
 const Account = NS + 'Account';
 
-registerNodeShape({ id: Secret, propertyShapes: [{ id: Secret + '/token', label: 'token', path: { id: 'http://ex/token' } }] });
+const Cls = (name) => 'http://ex/class/' + name;
+registerNodeShape({ id: Secret, targetClass: { id: Cls('Secret') }, propertyShapes: [{ id: Secret + '/token', label: 'token', path: { id: 'http://ex/token' } }] });
 registerNodeShape({
   id: SubSecret,
+  targetClass: { id: Cls('SubSecret') },
   extends: { id: Secret },
   propertyShapes: [{ id: SubSecret + '/extra', label: 'extra', path: { id: 'http://ex/extra' } }],
 });
-registerNodeShape({ id: Account, propertyShapes: [] });
+registerNodeShape({ id: Account, targetClass: { id: Cls('Account') }, propertyShapes: [] });
 registerNodeShape({
   id: Person,
+  targetClass: { id: Cls('Person') },
   propertyShapes: [
+    { id: Person + '/vault', label: 'vault', path: { id: 'http://ex/vault' }, valueShape: { id: Secret }, contains: true },
     { id: Person + '/name', label: 'name', path: { id: 'http://ex/name' } },
     { id: Person + '/secret', label: 'secret', path: { id: 'http://ex/secret' }, valueShape: { id: Secret } },
     { id: Person + '/account', label: 'account', path: { id: 'http://ex/account' }, valueShape: { id: Account } },
@@ -153,8 +161,9 @@ describe('query access registry', () => {
 });
 
 describe('checkQueryAccess', () => {
-  const check = (ir, operation = 'select', mode = 'warn') =>
-    checkQueryAccess({ operation, query: {}, ir, mode });
+  const noProtectedNodes = async () => false;
+  const check = (ir, operation = 'select', mode = 'warn', probeProtectedNodes = noProtectedNodes) =>
+    checkQueryAccess({ operation, query: {}, ir, mode, probeProtectedNodes });
 
   it('does nothing outside an http call', async () => {
     registerProtectedShapes([Person], { deny: 'all', owner: 'test' });
@@ -190,12 +199,31 @@ describe('checkQueryAccess', () => {
     assert.equal(await statusOf(run({ kind: 'select', root: { kind: 'shape_scan', shape: Account } }, 'select')), 'ok');
   });
 
-  it('refuses unanalysable queries only in enforce mode', async () => {
+  it('refuses a query that could not be analysed, in every mode', async () => {
     quiet();
-    assert.equal(await statusOf(runWithCallContext(signedIn, () => check(undefined))), 'ok');
-    assert.equal(await statusOf(runWithCallContext(signedIn, () => check(undefined, 'select', 'enforce'))), 403);
+    assert.equal(await statusOf(runWithCallContext(signedIn, () => check(undefined))), 400);
+    assert.equal(await statusOf(runWithCallContext(signedIn, () => check(undefined, 'select', 'enforce'))), 400);
   });
 
+  it('refuses an operation that does not match the query kind', async () => {
+    quiet();
+    const run = (ir, op) => runWithCallContext(signedIn, () => check(ir, op));
+    assert.equal(await statusOf(run(deleteAccount, 'select')), 400);
+    assert.equal(await statusOf(run(selectName, 'delete')), 400);
+    assert.equal(await statusOf(run(createNestedAccount, 'update')), 400);
+    assert.equal(await statusOf(run({ kind: 'count', root: selectName.root }, 'select')), 'ok');
+    assert.equal(await statusOf(run({ kind: 'delete_all', shape: Person }, 'delete')), 'ok');
+  });
+
+  it('refuses anonymous mutations in every mode', async () => {
+    quiet();
+    const anon = (ir, op, mode) => runWithCallContext(http(), () => check(ir, op, mode));
+    assert.equal(await statusOf(anon(updateLinkAccount, 'update', 'warn')), 401);
+    assert.equal(await statusOf(anon(createNestedAccount, 'create', 'warn')), 401);
+    assert.equal(await statusOf(anon({ kind: 'delete', shape: Person, ids: [{ id: 'http://ex/p' }] }, 'delete', 'warn')), 401);
+    // reads stay a warning in warn mode
+    assert.equal(await statusOf(anon(selectName, 'select', 'warn')), 'ok');
+  });
   it('runs the authorizers with the analysed targets', async () => {
     const seen = [];
     cleanups.push(
@@ -209,5 +237,137 @@ describe('checkQueryAccess', () => {
     assert.equal(seen[0].operation, 'select');
     assert.equal(seen[0].linkedAuth.userAccount.id, 'http://ex/me');
     assert.ok(seen[0].propertyShapes.has(Person + '/name'));
+  });
+});
+
+const createWithId = (id) => ({ kind: 'create', shape: Person, data: { shape: Person, id, fields: [] } });
+const updateName = (id) => ({
+  kind: 'update',
+  shape: Person,
+  id,
+  data: { shape: Person, fields: [{ property: Person + '/name', value: 'x' }] },
+});
+
+describe('collectMutationNodes', () => {
+  it('names targets, client ids, owned references and scans', () => {
+    assert.deepEqual(collectMutationNodes(createWithId('http://ex/s1')).clientIds, ['http://ex/s1']);
+    assert.deepEqual(collectMutationNodes(createNestedAccount).clientIds, []);
+    const nestedId = {
+      kind: 'update',
+      shape: Person,
+      id: 'http://ex/p1',
+      data: { shape: Person, fields: [{ property: Person + '/secret', value: { shape: Secret, id: 'http://ex/s1', fields: [] } }] },
+    };
+    assert.deepEqual(collectMutationNodes(nestedId).clientIds, ['http://ex/s1']);
+    assert.deepEqual(collectMutationNodes(updateName('http://ex/p1')), {
+      clientIds: [],
+      ids: ['http://ex/p1'],
+      ownerIds: [],
+      scanShapes: [],
+    });
+    // a reference is not a write, unless the property owns its values
+    assert.deepEqual(collectMutationNodes(updateLinkAccount).ids, ['http://ex/p1']);
+    const setVault = {
+      kind: 'update',
+      shape: Person,
+      id: 'http://ex/p1',
+      data: { shape: Person, fields: [{ property: Person + '/vault', value: { remove: [{ id: 'http://ex/s9' }] } }] },
+    };
+    const vault = collectMutationNodes(setVault);
+    assert.deepEqual(vault.ids.sort(), ['http://ex/p1', 'http://ex/s9']);
+    assert.deepEqual(vault.ownerIds, ['http://ex/p1']);
+    // deleting a shape that owns values cascades
+    assert.deepEqual(collectMutationNodes({ kind: 'delete', shape: Person, ids: [{ id: 'http://ex/p1' }] }).ownerIds, ['http://ex/p1']);
+    assert.deepEqual(collectMutationNodes({ kind: 'delete_where', shape: Person, where: {}, wherePatterns: [] }).scanShapes, [Person]);
+  });
+});
+
+describe('protected nodes', () => {
+  const run = (ir, op, probe) =>
+    runWithCallContext(signedIn, () => checkQueryAccess({ operation: op, query: {}, ir, mode: 'warn', probeProtectedNodes: probe }));
+
+  it('lists the classes of protected shapes and of the shapes that extend them', () => {
+    registerProtectedShapes([Secret], { deny: 'write', owner: 'test' });
+    assert.deepEqual([...getProtectedClassIds()].sort(), [Cls('Secret'), Cls('SubSecret')].sort());
+  });
+
+  it('refuses a create that chooses its id, with or without protected shapes', async () => {
+    quiet();
+    assert.equal(await statusOf(run(createWithId('http://ex/s1'), 'create', async () => false)), 403);
+    assert.equal(await statusOf(run(createNestedAccount, 'create', async () => false)), 'ok');
+  });
+
+  it('asks about every target and refuses when a protected node would be written', async () => {
+    quiet();
+    registerProtectedShapes([Secret], { deny: 'write', owner: 'test' });
+    const checks = [];
+    const probe = async (c) => {
+      checks.push(c);
+      return c.ids.includes('http://ex/secret1');
+    };
+    assert.equal(await statusOf(run(updateName('http://ex/secret1'), 'update', probe)), 403);
+    assert.equal(await statusOf(run({ kind: 'delete', shape: Person, ids: [{ id: 'http://ex/secret1' }] }, 'delete', probe)), 403);
+    assert.equal(await statusOf(run(updateName('http://ex/p1'), 'update', probe)), 'ok');
+    assert.equal(checks[0].shape, Person);
+    assert.deepEqual(checks[0].classes.sort(), [Cls('Secret'), Cls('SubSecret')].sort());
+    assert.deepEqual(checks[1].ownerIds, ['http://ex/secret1']);
+    assert.deepEqual(checks[1].containsPredicates, ['http://ex/vault']);
+  });
+
+  it('passes the target class of a where/all mutation', async () => {
+    quiet();
+    registerProtectedShapes([Secret], { deny: 'write', owner: 'test' });
+    let seen;
+    const probe = async (c) => ((seen = c), false);
+    assert.equal(await statusOf(run({ kind: 'delete_all', shape: Person }, 'delete', probe)), 'ok');
+    assert.deepEqual(seen.scanClasses, [Cls('Person')]);
+  });
+
+  it('fails closed without a probe, when the probe throws, or on a non-boolean answer', async () => {
+    quiet();
+    registerProtectedShapes([Secret], { deny: 'write', owner: 'test' });
+    assert.equal(await statusOf(run(updateName('http://ex/p1'), 'update', undefined)), 403);
+    assert.equal(await statusOf(run(updateName('http://ex/p1'), 'update', async () => { throw new Error('down'); })), 403);
+    assert.equal(await statusOf(run(updateName('http://ex/p1'), 'update', async () => undefined)), 403);
+  });
+
+  it('skips the lookup when nothing is protected', async () => {
+    let asked = false;
+    assert.equal(await statusOf(run(updateName('http://ex/p1'), 'update', async () => ((asked = true), true))), 'ok');
+    assert.equal(asked, false);
+  });
+});
+
+describe('raw queries', () => {
+  const raw = (ctx, mode = 'warn') =>
+    runWithCallContext(ctx, () =>
+      checkQueryAccess({ operation: 'select', query: 'SELECT * WHERE { ?s ?p ?o }', ir: undefined, raw: true, mode, endpoint: 'api/select-raw' })
+    );
+
+  it('are refused in every mode without a raw authorizer', async () => {
+    quiet();
+    assert.equal(getRawQueryAuthorizers().length, 0);
+    assert.equal(await statusOf(raw(signedIn)), 403);
+    assert.equal(await statusOf(raw(signedIn, 'enforce')), 403);
+    assert.equal(await statusOf(raw(http())), 403);
+  });
+
+  it('run every raw authorizer once one is registered', async () => {
+    quiet();
+    const seen = [];
+    cleanups.push(registerRawQueryAuthorizer((c) => { seen.push(c); }, { owner: 'test' }));
+    assert.equal(await statusOf(raw(signedIn)), 'ok');
+    assert.equal(seen[0].query, 'SELECT * WHERE { ?s ?p ?o }');
+    assert.equal(seen[0].linkedAuth.userAccount.id, 'http://ex/me');
+    cleanups.push(
+      registerRawQueryAuthorizer(() => { throw Object.assign(new Error('no'), { status: 403 }); }, { owner: 'other' })
+    );
+    assert.equal(await statusOf(raw(signedIn)), 403);
+  });
+
+  it('still need a session in enforce mode', async () => {
+    quiet();
+    cleanups.push(registerRawQueryAuthorizer(() => {}, { owner: 'test' }));
+    assert.equal(await statusOf(raw(http(), 'enforce')), 401);
   });
 });

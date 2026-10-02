@@ -12,10 +12,10 @@ describe('built lib', () => {
     for (const name of ['callable', 'declareCallable', 'getOwnCallableLevel', 'internal', 'declareInternal', 'isDeclaredInternal']) {
       assert.equal(typeof callable[name], 'function', name);
     }
-    for (const name of ['getCallContext', 'runWithCallContext', 'runAsSystem', 'currentRequest', 'currentResponse', 'requireSessionUser']) {
+    for (const name of ['getCallContext', 'runWithCallContext', 'runAsSystem', 'currentRequest', 'currentResponse', 'requireSessionUser', 'httpCallContext', 'runInHttpContext']) {
       assert.equal(typeof ctx[name], 'function', name);
     }
-    for (const name of ['registerProtectedShapes', 'registerQueryAuthorizer', 'checkQueryAccess', 'collectQueryTargets', 'getProtectedShapeIds', 'getQueryAuthorizers']) {
+    for (const name of ['registerProtectedShapes', 'registerQueryAuthorizer', 'checkQueryAccess', 'collectQueryTargets', 'getProtectedShapeIds', 'getQueryAuthorizers', 'registerRawQueryAuthorizer', 'getRawQueryAuthorizers', 'collectMutationNodes', 'getProtectedClassIds', 'getContainsPredicates']) {
       assert.equal(typeof qa[name], 'function', name);
     }
     const desc = Object.getOwnPropertyDescriptor(bp.BackendProvider.prototype, 'request');

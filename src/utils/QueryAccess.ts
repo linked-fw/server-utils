@@ -8,19 +8,31 @@
  * - `registerProtectedShapes(shapes, {deny, owner})`: a shape (or any shape that
  *   extends it) that the generic plane must not touch at all (`'all'`, e.g.
  *   credentials) or must not change (`'write'`, e.g. memberships, which change
- *   only through their own providers).
+ *   only through their own providers). Protection covers the nodes as well as the
+ *   shape: a mutation through any other shape that would write or delete a node
+ *   typed with a protected shape's class (or a subclass of it) is refused too.
  * - `registerQueryAuthorizer(fn, {owner})`: app-specific checks, run for every
  *   query that passed the protected-shape rules. Throw (a `ServerCallError` with
  *   a status, typically 403) to refuse.
+ * - `registerRawQueryAuthorizer(fn, {owner})`: raw SPARQL (`/api/select-raw`)
+ *   cannot be analysed, so it is refused unless an app registers one of these;
+ *   then every registered raw authorizer must accept the query.
  *
- * Both registries are keyed by `owner`, so re-running registration (an HMR
+ * The registries are keyed by `owner`, so re-running registration (an HMR
  * reload of the registering provider) replaces the earlier entry instead of
  * stacking another one.
  *
  * The registry lives on `globalThis` so that duplicate copies of this module
  * share it.
  */
-import { getAllNodeShapes, getRegistryVersion, getSuperShapes } from '@_linked/core/utils/ShapeClass';
+import {
+  getAllNodeShapes,
+  getNodeShape,
+  getRegistryVersion,
+  getSubShapes,
+  getSuperShapes,
+} from '@_linked/core/utils/ShapeClass';
+import { getPropertyShapes } from '@_linked/core/shapes/nodeShapeData';
 import { getCallContext } from './CallContext.js';
 import { ServerCallError } from './ServerCallError.js';
 
@@ -46,9 +58,23 @@ export type QueryAuthorizer = (
   ctx: QueryAuthorizationContext
 ) => void | Promise<void>;
 
+export interface RawQueryAuthorizationContext {
+  /** The raw SPARQL text as the client sent it. */
+  query: string;
+  /** The endpoint, e.g. `api/select-raw`. */
+  endpoint: string;
+  request: any;
+  linkedAuth: any;
+}
+
+export type RawQueryAuthorizer = (
+  ctx: RawQueryAuthorizationContext
+) => void | Promise<void>;
+
 type Registry = {
   protectedShapes: Map<string, Map<QueryDenyMode, (Function | string)[]>>;
   authorizers: Map<string, QueryAuthorizer>;
+  rawAuthorizers: Map<string, RawQueryAuthorizer>;
 };
 
 const REGISTRY_KEY = Symbol.for('@_linked/server-utils:queryAccess');
@@ -57,13 +83,20 @@ function registry(): Registry {
   const g = globalThis as any;
   if (!g[REGISTRY_KEY]) {
     Object.defineProperty(g, REGISTRY_KEY, {
-      value: { protectedShapes: new Map(), authorizers: new Map() } as Registry,
+      value: {
+        protectedShapes: new Map(),
+        authorizers: new Map(),
+        rawAuthorizers: new Map(),
+      } as Registry,
       enumerable: false,
       configurable: false,
       writable: false,
     });
   }
-  return g[REGISTRY_KEY];
+  const reg = g[REGISTRY_KEY];
+  // a registry created by an older copy of this module
+  if (!reg.rawAuthorizers) reg.rawAuthorizers = new Map();
+  return reg;
 }
 
 function assertOwner(owner: unknown, fn: string): asserts owner is string {
@@ -123,6 +156,38 @@ export function registerQueryAuthorizer(
   };
 }
 
+/**
+ * Allow raw SPARQL on the generic plane (`/api/select-raw`), which is refused
+ * in every mode until at least one of these is registered. Every registered raw
+ * authorizer runs; any of them throwing refuses the query. A raw query cannot be
+ * analysed for the shapes it touches, so the authorizer decides on the text and
+ * the caller alone (for example: only for a service account, and only `SELECT`).
+ *
+ * Replaces the same owner's earlier raw authorizer. Returns a function that
+ * removes it (only if it is still the registered one).
+ */
+export function registerRawQueryAuthorizer(
+  fn: RawQueryAuthorizer,
+  o: { owner: string }
+): () => void {
+  assertOwner(o?.owner, 'registerRawQueryAuthorizer');
+  if (typeof fn !== 'function') {
+    throw new TypeError('registerRawQueryAuthorizer: expected a function');
+  }
+  const reg = registry();
+  reg.rawAuthorizers.set(o.owner, fn);
+  return () => {
+    if (reg.rawAuthorizers.get(o.owner) === fn) {
+      reg.rawAuthorizers.delete(o.owner);
+    }
+  };
+}
+
+/** The registered raw-query authorizers, in registration order. */
+export function getRawQueryAuthorizers(): RawQueryAuthorizer[] {
+  return [...registry().rawAuthorizers.values()];
+}
+
 function shapeIdOf(shape: Function | string): string | undefined {
   if (typeof shape === 'string') return shape;
   return (shape as any)?.shape?.id;
@@ -140,13 +205,47 @@ export function getProtectedShapeIds(deny: QueryDenyMode): Set<string> {
   return ids;
 }
 
+/**
+ * The `rdf:type` IRIs of every protected shape (either mode) and of every shape
+ * that extends one: the classes whose nodes no generic-plane mutation may write
+ * or delete, whichever shape the mutation goes through.
+ */
+export function getProtectedClassIds(): Set<string> {
+  const classes = new Set<string>();
+  const add = (shape: any) => {
+    const id = shape?.targetClass?.id;
+    if (typeof id === 'string' && id) classes.add(id);
+  };
+  for (const deny of ['all', 'write'] as QueryDenyMode[]) {
+    for (const shapeId of getProtectedShapeIds(deny)) {
+      let nodeShape: any;
+      try {
+        nodeShape = getNodeShape({ id: shapeId } as any);
+      } catch {
+        nodeShape = undefined;
+      }
+      add(nodeShape);
+      let subs: any[] = [];
+      try {
+        subs = getSubShapes(shapeId) ?? [];
+      } catch {
+        subs = [];
+      }
+      subs.forEach(add);
+    }
+  }
+  return classes;
+}
+
 /** The registered authorizers, in registration order. */
 export function getQueryAuthorizers(): QueryAuthorizer[] {
   return [...registry().authorizers.values()];
 }
 
-// property-shape IRI -> {owner node shape, value node shape}
-let propertyIndex: Map<string, { owner: string; value?: string }> | undefined;
+// property-shape IRI -> {owner node shape, value node shape, owns its values}
+let propertyIndex:
+  | Map<string, { owner: string; value?: string; contains?: boolean }>
+  | undefined;
 let propertyIndexVersion = -1;
 
 function getPropertyIndex() {
@@ -159,6 +258,7 @@ function getPropertyIndex() {
         propertyIndex.set(ps.id, {
           owner: ps.parentNodeShape?.id ?? nodeShapeId,
           value: ps.valueShape?.id,
+          contains: ps.contains === true,
         });
       }
     }
@@ -267,31 +367,225 @@ function warnOnce(key: string, message: string) {
   console.warn(message);
 }
 
+/** The IR kinds each generic-plane operation may carry. */
+const KINDS_BY_OPERATION: Record<QueryOperation, ReadonlySet<string>> = {
+  select: new Set(['select', 'count']),
+  ask: new Set(['ask']),
+  create: new Set(['create']),
+  update: new Set(['update', 'upsert', 'update_where']),
+  delete: new Set(['delete', 'delete_all', 'delete_where']),
+};
+
+const MUTATIONS: ReadonlySet<QueryOperation> = new Set(['create', 'update', 'delete']);
+
+/** The IRIs of every `contains` property's (simple) path in the registry. */
+export function getContainsPredicates(): string[] {
+  const preds = new Set<string>();
+  for (const nodeShape of getAllNodeShapes().values()) {
+    for (const ps of (nodeShape as any)?.propertyShapes ?? []) {
+      if (!ps?.contains) continue;
+      const path = ps.path;
+      if (typeof path === 'string') preds.add(path);
+      else if (path && typeof path === 'object' && typeof path.id === 'string') {
+        preds.add(path.id);
+      }
+    }
+  }
+  return [...preds];
+}
+
+function shapeHasContainsProperty(shapeId: string): boolean {
+  const nodeShape = getNodeShape({ id: shapeId } as any);
+  if (!nodeShape) return false;
+  try {
+    return getPropertyShapes(nodeShape, true).some((ps: any) => ps?.contains);
+  } catch {
+    return false;
+  }
+}
+
+export interface MutationNodes {
+  /** Ids the client chose for nodes the mutation creates (`__id`). */
+  clientIds: string[];
+  /** Existing nodes the mutation writes or deletes, by id. */
+  ids: string[];
+  /** Nodes whose owned (`contains`) subtree the mutation may delete. */
+  ownerIds: string[];
+  /** Shapes a where/all mutation writes or deletes every matching instance of. */
+  scanShapes: string[];
+}
+
+/**
+ * The nodes a mutation IR writes or deletes:
+ *
+ * - the target (`update`/`upsert` `id`, `delete` `ids`);
+ * - nested node data that carries an id (`{__id, ...}`), which the client chose;
+ * - references set or removed on a `contains` property, since the owning edge
+ *   makes them part of the target (removing one deletes it);
+ * - for `delete`, and for an update that writes a `contains` property, the target
+ *   is also an owner whose owned subtree the store may cascade-delete;
+ * - for `update_where`/`delete_where`/`delete_all`, the shape whose instances it
+ *   matches (no ids are known up front).
+ */
+export function collectMutationNodes(ir: any): MutationNodes {
+  const clientIds = new Set<string>();
+  const ids = new Set<string>();
+  const ownerIds = new Set<string>();
+  const scanShapes = new Set<string>();
+  if (!ir || typeof ir !== 'object') {
+    return { clientIds: [], ids: [], ownerIds: [], scanShapes: [] };
+  }
+  const index = getPropertyIndex();
+  const seen = new Set<object>();
+  let writesContains = false;
+
+  const addId = (set: Set<string>, id: unknown) => {
+    if (typeof id === 'string' && id) set.add(id);
+  };
+
+  // A field value: node data, a reference, a set modification, or an array of them.
+  const walkValue = (value: unknown, contains: boolean) => {
+    if (!value || typeof value !== 'object') return;
+    if (seen.has(value as object)) return;
+    seen.add(value as object);
+    if (Array.isArray(value)) {
+      for (const item of value) walkValue(item, contains);
+      return;
+    }
+    const obj = value as Record<string, any>;
+    if (Array.isArray(obj.fields) && typeof obj.shape === 'string') {
+      walkNodeData(obj, true);
+      return;
+    }
+    if ('add' in obj || 'remove' in obj) {
+      walkValue(obj.add, contains);
+      walkValue(obj.remove, contains);
+      return;
+    }
+    if (typeof obj.id === 'string') {
+      if (contains) addId(ids, obj.id);
+      return;
+    }
+    // an expression or anything else: look inside for nested node data
+    for (const key of Object.keys(obj)) walkValue(obj[key], contains);
+  };
+
+  const walkNodeData = (data: any, nested: boolean) => {
+    if (!data || typeof data !== 'object') return;
+    // node data with an id is a node the client named itself
+    if (typeof data.id === 'string') addId(clientIds, data.id);
+    for (const field of Array.isArray(data.fields) ? data.fields : []) {
+      const contains = !!(field && typeof field.property === 'string' && index.get(field.property)?.contains);
+      if (contains && !nested) writesContains = true;
+      walkValue(field?.value, contains);
+    }
+  };
+
+  switch (ir.kind) {
+    case 'create':
+      walkNodeData(ir.data, false);
+      break;
+    case 'update':
+    case 'upsert':
+      addId(ids, ir.id);
+      walkNodeData({ ...ir.data, id: undefined }, false);
+      if (writesContains) addId(ownerIds, ir.id);
+      break;
+    case 'update_where':
+      walkNodeData({ ...ir.data, id: undefined }, false);
+      if (typeof ir.shape === 'string') scanShapes.add(ir.shape);
+      break;
+    case 'delete':
+      for (const ref of Array.isArray(ir.ids) ? ir.ids : []) {
+        addId(ids, ref?.id);
+        if (typeof ir.shape === 'string' && shapeHasContainsProperty(ir.shape)) {
+          addId(ownerIds, ref?.id);
+        }
+      }
+      break;
+    case 'delete_all':
+    case 'delete_where':
+      if (typeof ir.shape === 'string') scanShapes.add(ir.shape);
+      break;
+  }
+  return {
+    clientIds: [...clientIds],
+    ids: [...ids],
+    ownerIds: [...ownerIds],
+    scanShapes: [...scanShapes],
+  };
+}
+
+/** What the server is asked to look up before a mutation runs. */
+export interface ProtectedNodeCheck {
+  operation: QueryOperation;
+  /** The mutation's shape: the store it routes to is the one to ask. */
+  shape: string;
+  /** Is any of these nodes typed with one of `classes`? */
+  ids: string[];
+  /** Is any node in the owned subtree of these (`containsPredicates`, one or more hops) typed so? */
+  ownerIds: string[];
+  /** Is any instance of these classes (or a node it owns) also typed so? */
+  scanClasses: string[];
+  /** The protected classes; a node typed with a subclass of one counts too. */
+  classes: string[];
+  /** The `contains` predicates the store follows when it cascades a delete. */
+  containsPredicates: string[];
+}
+
+/**
+ * Answers a `ProtectedNodeCheck` against the store the mutation would run on:
+ * `true` when a protected node would be touched. The server provides it (one
+ * SPARQL `ASK`). Throw when the store cannot answer; the mutation is refused.
+ */
+export type ProtectedNodeProbe = (check: ProtectedNodeCheck) => Promise<boolean>;
+
 export interface CheckQueryAccessOptions {
   operation: QueryOperation;
   query: unknown;
   /**
-   * The lowered IR. `undefined` for a query that cannot be analysed (a raw
-   * SPARQL string): no session → as below; otherwise warned, or 403 in enforce.
+   * The lowered IR. `undefined` when the query could not be analysed: refused
+   * (400), unless `raw` is set.
    */
   ir: unknown;
+  /** A raw SPARQL query (`query` is its text); see `registerRawQueryAuthorizer`. */
+  raw?: boolean;
   /** `'enforce'` refuses what `'warn'` only logs. */
   mode: 'warn' | 'enforce';
   /** Used in log lines. */
   endpoint?: string;
+  /**
+   * Looks up whether a mutation would touch a node typed with a protected class.
+   * Without it, a mutation is refused whenever protected shapes are registered.
+   */
+  probeProtectedNodes?: ProtectedNodeProbe;
+}
+
+function refuse(status: number, message: string, log?: string): never {
+  if (log) console.warn(log);
+  throw new ServerCallError(status, message);
 }
 
 /**
  * Apply the query rules to a query about to run on the generic plane.
  *
- * Only an HTTP call is checked; system and backend-to-backend work outside a
- * request is trusted. Order:
+ * Only a call with an HTTP context is checked; system work and
+ * backend-to-backend calls made outside a request are trusted. (The server
+ * enters an HTTP context for every request it receives.) Order:
  *
- * 1. no session → logged once, or 401 in enforce mode;
- * 2. a protected shape (`deny: 'all'`), or a written shape under `deny: 'write'`
- *    on a mutation → 403 in both modes (registering a shape is the opt-in);
- * 3. an unanalysable query → logged once, or 403 in enforce mode;
- * 4. the registered authorizers, in order.
+ * 1. the operation must match the query's kind (400 otherwise);
+ * 2. no session → a mutation is refused (401) in every mode; anything else is
+ *    logged once, or 401 in enforce mode;
+ * 3. raw SPARQL → refused (403) unless raw authorizers are registered; then they
+ *    all run, and nothing below applies;
+ * 4. a query that could not be analysed → 400;
+ * 5. a protected shape (`deny: 'all'`) anywhere in the query, or a written shape
+ *    under either mode on a mutation → 403 in both modes (registering a shape is
+ *    the opt-in);
+ * 6. a mutation: client-chosen ids for new nodes → 403; and, when protected
+ *    shapes are registered, a node it would write or delete that is typed with a
+ *    protected class (asked through `probeProtectedNodes`) → 403;
+ * 7. the registered query authorizers, in order.
  */
 export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void> {
   const ctx = getCallContext();
@@ -299,10 +593,25 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
   const request = ctx.request;
   const linkedAuth = request?.linkedAuth;
   const endpoint = o.endpoint ?? o.operation;
+  const isMutation = MUTATIONS.has(o.operation);
+
+  if (!o.raw && o.ir !== undefined) {
+    const kind = (o.ir as any)?.kind;
+    if (!KINDS_BY_OPERATION[o.operation]?.has(kind)) {
+      refuse(
+        400,
+        'Query kind does not match the endpoint',
+        `[linked] refused ${endpoint}: it carries a ${JSON.stringify(String(kind)).slice(0, 40)} query`
+      );
+    }
+  }
 
   if (!linkedAuth?.userAccount) {
+    if (isMutation) {
+      refuse(401, 'Authentication required');
+    }
     if (o.mode === 'enforce') {
-      throw new ServerCallError(401, 'Authentication required');
+      refuse(401, 'Authentication required');
     }
     warnOnce(
       'anon:' + endpoint,
@@ -311,35 +620,47 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
     );
   }
 
-  if (o.ir === undefined) {
-    if (o.mode === 'enforce') {
-      throw new ServerCallError(403, 'Query not permitted');
+  if (o.raw) {
+    const rawAuthorizers = getRawQueryAuthorizers();
+    if (rawAuthorizers.length === 0) {
+      warnOnce(
+        'raw:' + endpoint,
+        `[linked] refused ${endpoint}: raw SPARQL is only accepted when the app ` +
+          `registers a raw query authorizer (registerRawQueryAuthorizer).`
+      );
+      refuse(403, 'Query not permitted');
     }
-    warnOnce(
-      'raw:' + endpoint,
-      `[linked] ${endpoint} cannot be analysed for protected shapes. ` +
-        `This is refused (403) once rpcExposure is 'enforce'.`
-    );
+    const rawContext: RawQueryAuthorizationContext = {
+      query: typeof o.query === 'string' ? o.query : String(o.query ?? ''),
+      endpoint,
+      request,
+      linkedAuth,
+    };
+    for (const authorize of rawAuthorizers) {
+      await authorize(rawContext);
+    }
     return;
+  }
+
+  if (o.ir === undefined) {
+    refuse(400, 'Query could not be analysed');
   }
 
   const targets = collectQueryTargets(o.ir);
   const denyAll = getProtectedShapeIds('all');
   for (const shape of targets.shapes) {
     if (isProtected(shape, denyAll)) {
-      console.warn(`[linked] refused ${endpoint}: it touches protected shape ${shape}`);
-      throw new ServerCallError(403, 'Query not permitted');
+      refuse(403, 'Query not permitted', `[linked] refused ${endpoint}: it touches protected shape ${shape}`);
     }
   }
-  const isWrite = o.operation === 'create' || o.operation === 'update' || o.operation === 'delete';
-  if (isWrite) {
+  if (isMutation) {
     const denyWrite = getProtectedShapeIds('write');
     for (const shape of targets.writtenShapes) {
       if (isProtected(shape, denyWrite) || isProtected(shape, denyAll)) {
-        console.warn(`[linked] refused ${endpoint}: it writes protected shape ${shape}`);
-        throw new ServerCallError(403, 'Query not permitted');
+        refuse(403, 'Query not permitted', `[linked] refused ${endpoint}: it writes protected shape ${shape}`);
       }
     }
+    await checkMutationNodes(o, endpoint);
   }
 
   const authorizers = getQueryAuthorizers();
@@ -355,5 +676,67 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
   };
   for (const authorize of authorizers) {
     await authorize(authContext);
+  }
+}
+
+async function checkMutationNodes(o: CheckQueryAccessOptions, endpoint: string) {
+  const ir = o.ir as any;
+  const nodes = collectMutationNodes(ir);
+  if (nodes.clientIds.length > 0) {
+    refuse(
+      403,
+      'Query not permitted: the server assigns the ids of new nodes',
+      `[linked] refused ${endpoint}: it chooses the id of a new node`
+    );
+  }
+  const classes = getProtectedClassIds();
+  if (classes.size === 0) return;
+  if (
+    nodes.ids.length === 0 &&
+    nodes.ownerIds.length === 0 &&
+    nodes.scanShapes.length === 0
+  ) {
+    return;
+  }
+  const scanClasses: string[] = [];
+  for (const shapeId of nodes.scanShapes) {
+    const targetClass = (getNodeShape({ id: shapeId } as any) as any)?.targetClass?.id;
+    if (typeof targetClass !== 'string' || !targetClass) {
+      refuse(
+        403,
+        'Query not permitted',
+        `[linked] refused ${endpoint}: cannot tell which nodes it matches (shape ${shapeId} has no target class)`
+      );
+    }
+    scanClasses.push(targetClass);
+  }
+  if (!o.probeProtectedNodes) {
+    refuse(
+      403,
+      'Query not permitted',
+      `[linked] refused ${endpoint}: protected shapes are registered and the nodes it writes cannot be checked`
+    );
+  }
+  let touches: boolean;
+  try {
+    touches = await o.probeProtectedNodes({
+      operation: o.operation,
+      shape: ir.shape,
+      ids: nodes.ids,
+      ownerIds: nodes.ownerIds,
+      scanClasses,
+      classes: [...classes],
+      containsPredicates: getContainsPredicates(),
+    });
+  } catch (err) {
+    if (ServerCallError.is(err)) throw err;
+    refuse(
+      403,
+      'Query not permitted',
+      `[linked] refused ${endpoint}: could not check the nodes it writes: ${(err as any)?.message ?? err}`
+    );
+  }
+  if (touches !== false) {
+    refuse(403, 'Query not permitted', `[linked] refused ${endpoint}: it writes a node of a protected class`);
   }
 }

@@ -4,7 +4,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { LincdServerUtilsBackendProvider } from '../lib/esm/backend.js';
-import { getOwnCallableLevel } from '../lib/esm/utils/callable.js';
+import { getOwnCallableLevel, isDeclaredInternal } from '../lib/esm/utils/callable.js';
 import { runAsSystem, runWithCallContext } from '../lib/esm/utils/CallContext.js';
 import { LinkedLiveUpdate, updates } from '../lib/esm/utils/LinkedLiveUpdates.js';
 import { ServerCallError } from '../lib/esm/utils/ServerCallError.js';
@@ -69,5 +69,12 @@ describe('LincdServerUtilsBackendProvider.getUpdatesSince', () => {
     updates.push({ timestamp: 10, type: 't', data: 'old' }, { timestamp: 20, type: 't', data: 'new' });
     const res = asUser({ id: 'u' }, () => provider.getUpdatesSince(15));
     assert.deepEqual(res.map((u) => u.data), ['new']);
+  });
+});
+
+describe('LincdServerUtilsBackendProvider.setupLiveUpdatesMulticore', () => {
+  it('is internal: never dispatched over HTTP', () => {
+    assert.equal(isDeclaredInternal(LincdServerUtilsBackendProvider, 'setupLiveUpdatesMulticore'), true);
+    assert.equal(getOwnCallableLevel(LincdServerUtilsBackendProvider, 'setupLiveUpdatesMulticore'), undefined);
   });
 });

@@ -186,4 +186,26 @@ describe('internal', () => {
     expect(() => declareInternal(S, 'thing' as any)).toThrow(/array/);
     expect(() => declareInternal(undefined as any, ['a'])).toThrow(/class/);
   });
+
+  it('declareInternal and declareCallable throw on a name the class has no method for', () => {
+    class Base {
+      inherited() {}
+    }
+    class Provider extends Base {
+      real() {}
+      get accessor() {
+        return 1;
+      }
+    }
+    expect(() => declareInternal(Provider, ['reall'])).toThrow(/has no method "reall"/);
+    expect(() => declareCallable(Provider, { nope: 'public' })).toThrow(/has no method "nope"/);
+    expect(() => declareInternal(Provider, ['accessor'])).toThrow(/has no method/);
+    // nothing was declared by the failed calls
+    expect(isDeclaredInternal(Provider, 'reall')).toBe(false);
+    // inherited methods are fine
+    declareInternal(Provider, ['inherited']);
+    declareCallable(Provider, { real: 'user' });
+    expect(isDeclaredInternal(Provider, 'inherited')).toBe(true);
+  });
 });
+

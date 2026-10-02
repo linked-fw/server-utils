@@ -1,21 +1,37 @@
 import path from 'path';
-import { getCallContext, runWithCallContext } from './CallContext.js';
+import {
+  getCallContext,
+  httpCallContext,
+  runWithCallContext,
+  type CallContext,
+} from './CallContext.js';
 
-// Values assigned to `provider.request`/`provider.response` directly, per
-// instance. Kept outside the instance so no class field can collide with the
-// accessors below.
-const legacyOverrides = new WeakMap<object, { request?: any; response?: any }>();
-const warnedLegacyAssignment = new Set<string>();
+type Override = { request?: any; response?: any };
 
-function warnLegacyAssignment(provider: object, field: string) {
+// Values assigned to `provider.request`/`provider.response`, per call context
+// and per provider instance. Keyed by the context object, so an assignment
+// lasts as long as the call that made it and is never seen by another call.
+// Kept outside the instance so no class field can collide with the accessors.
+const overridesByContext = new WeakMap<CallContext, WeakMap<object, Override>>();
+const warnedOutsideContext = new Set<string>();
+
+function overridesOf(ctx: CallContext, create: boolean): WeakMap<object, Override> | undefined {
+  let map = overridesByContext.get(ctx);
+  if (!map && create) {
+    map = new WeakMap();
+    overridesByContext.set(ctx, map);
+  }
+  return map;
+}
+
+function warnAssignmentOutsideContext(provider: object, field: string) {
   const name = provider?.constructor?.name || 'BackendProvider';
   const key = name + '.' + field;
-  if (warnedLegacyAssignment.has(key)) return;
-  warnedLegacyAssignment.add(key);
+  if (warnedOutsideContext.has(key)) return;
+  warnedOutsideContext.add(key);
   console.warn(
-    `[linked] ${name} assigns this.${field}. Providers are shared by every ` +
-      `call in flight, so an assigned ${field} leaks between users. Read ` +
-      `this.${field} (it comes from the current call) instead of setting it.`
+    `[linked] ${name} assigns this.${field} outside any call; the value is ignored. ` +
+      `Inside a call, this.${field} already is the current call's ${field}.`
   );
 }
 
@@ -28,44 +44,50 @@ export class BackendProvider {
    * outside an HTTP call (boot, jobs, backend-to-backend calls made outside a
    * request).
    *
-   * Assigning it still works for existing code, but pins that value on this
-   * instance for every later call, and warns once.
+   * Assigning it stores the value in the current call's context, for this
+   * provider instance only: later reads in the same call see it, other calls do
+   * not. Outside any call an assignment is ignored, with a warning.
    */
   get request(): any {
-    const override = legacyOverrides.get(this);
-    if (override && 'request' in override) return override.request;
-    const ctx = getCallContext();
-    return ctx?.kind === 'http' ? ctx.request : undefined;
+    return this.readField('request');
   }
   set request(value: any) {
-    this.assignLegacy('request', value);
+    this.assignField('request', value);
   }
 
   /** The HTTP response of the current call; see `request`. */
   get response(): any {
-    const override = legacyOverrides.get(this);
-    if (override && 'response' in override) return override.response;
-    const ctx = getCallContext();
-    return ctx?.kind === 'http' ? ctx.response : undefined;
+    return this.readField('response');
   }
   set response(value: any) {
-    this.assignLegacy('response', value);
+    this.assignField('response', value);
   }
 
-  private assignLegacy(field: 'request' | 'response', value: any) {
+  private readField(field: 'request' | 'response'): any {
     const ctx = getCallContext();
+    if (!ctx) return undefined;
+    const override = overridesOf(ctx, false)?.get(this);
+    if (override && field in override) return override[field];
+    return ctx.kind === 'http' ? ctx[field] : undefined;
+  }
+
+  private assignField(field: 'request' | 'response', value: any) {
+    const ctx = getCallContext();
+    if (!ctx) {
+      warnAssignmentOutsideContext(this, field);
+      return;
+    }
+    const overrides = overridesOf(ctx, true)!;
+    let override = overrides.get(this);
     // `this.request = request` inside an initRequest override assigns what the
-    // context already holds: nothing to pin.
-    if (ctx?.kind === 'http' && ctx[field] === value) {
-      const override = legacyOverrides.get(this);
+    // context already holds: nothing to store.
+    if (ctx.kind === 'http' && ctx[field] === value) {
       if (override) delete override[field];
       return;
     }
-    warnLegacyAssignment(this, field);
-    let override = legacyOverrides.get(this);
     if (!override) {
       override = {};
-      legacyOverrides.set(this, override);
+      overrides.set(this, override);
     }
     override[field] = value;
   }
@@ -153,14 +175,13 @@ export class BackendProvider {
         }
       }
       try {
-        // A route serves one HTTP call: give it the per-call context, so
-        // `this.request` inside the provider is this request. Middleware is
-        // left alone; it hands on to the rest of the chain.
-        return await (isMiddleware
-          ? handler(req, res, next)
-          : runWithCallContext({ kind: 'http', request: req, response: res }, () =>
-              handler(req, res, next)
-            ));
+        // Every handler runs in the request's http context (one per request,
+        // shared with the server's own layers), so `this.request` inside the
+        // provider is this request, also after an earlier layer resumed from a
+        // callback that had lost the context.
+        return await runWithCallContext(httpCallContext(req, res), () =>
+          handler(req, res, next)
+        );
       } catch (err) {
         clearTimeout(watchdog);
         console.error(
@@ -269,8 +290,9 @@ export class BackendProvider {
     // A new instance of the given provider. It reads request and response from
     // the same per-call context as this one, so nothing is copied over.
     const other = new provider(this.server, this.lincdServer);
-    const override = legacyOverrides.get(this);
-    if (override) legacyOverrides.set(other, { ...override });
+    const ctx = getCallContext();
+    const override = ctx && overridesOf(ctx, false)?.get(this);
+    if (override) overridesOf(ctx, true)!.set(other, { ...override });
     return other as S;
   }
 }

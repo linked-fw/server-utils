@@ -48,6 +48,41 @@ export function runWithCallContext<T>(ctx: CallContext, fn: () => T): T {
   return storage().run(ctx, fn);
 }
 
+const REQUEST_CONTEXT_KEY = Symbol.for('@_linked/server-utils:requestCallContext');
+
+/**
+ * The http context of one HTTP request: created on first use and kept on the
+ * request object, so every layer that enters it for this request (the server's
+ * first middleware, a provider route, the RPC dispatcher) shares one context
+ * object. A value a provider stores in the context (see
+ * `BackendProvider.request`) therefore lasts exactly as long as the request.
+ */
+export function httpCallContext(request: any, response: any): CallContext {
+  const existing = request && request[REQUEST_CONTEXT_KEY];
+  if (existing && existing.kind === 'http' && existing.request === request) {
+    if (response && !existing.response) existing.response = response;
+    return existing;
+  }
+  const ctx: CallContext = { kind: 'http', request, response };
+  if (request && typeof request === 'object') {
+    Object.defineProperty(request, REQUEST_CONTEXT_KEY, {
+      value: ctx,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    });
+  }
+  return ctx;
+}
+
+/**
+ * Run `fn` in the http context of `request` (see `httpCallContext`). Used by the
+ * server for every request it receives, so no handler runs without a context.
+ */
+export function runInHttpContext<T>(request: any, response: any, fn: () => T): T {
+  return runWithCallContext(httpCallContext(request, response), fn);
+}
+
 /**
  * Run `fn` with no user behind it. Wrap long-lived work started from inside a
  * request (a job, a timer, a queue consumer) in this, or it keeps running as

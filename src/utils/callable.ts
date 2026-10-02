@@ -15,8 +15,10 @@
  * is always read with `hasOwnProperty`. Static properties are inherited through
  * the constructor's prototype chain, so a plain `cls[KEY]` read on a subclass
  * would find the base class's map, and writing to it would declare the method on
- * the base class. A subclass that overrides a declared method therefore has to
- * redeclare it.
+ * the base class. A subclass that overrides a declared method without
+ * redeclaring it keeps the strictest level declared for that method up its class
+ * chain (the server resolves this; `getOwnCallableLevel` reports only the class's
+ * own declaration).
  *
  * `@internal()` (or `declareInternal`) is the opposite: the method is never
  * dispatched over HTTP, in any exposure mode, while backend-to-backend calls
@@ -108,18 +110,39 @@ function checkInternalConflict(cls: Function, method: string) {
   }
 }
 
-function assertInstanceMethod(cls: Function, method: string) {
+/** True when `cls` or a super class defines an instance method named `method`. */
+function hasInstanceMethod(cls: Function, method: string): boolean {
+  let proto: any = cls.prototype;
+  while (proto && proto !== Object.prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(proto, method);
+    if (descriptor) return 'value' in descriptor && typeof descriptor.value === 'function';
+    proto = Object.getPrototypeOf(proto);
+  }
+  return false;
+}
+
+function printable(name: string): string {
+  return JSON.stringify(String(name)).slice(0, 120);
+}
+
+function assertInstanceMethod(cls: Function, method: string, fn: string) {
   if (typeof cls !== 'function') {
-    throw new TypeError('callable: can only declare methods of a class');
+    throw new TypeError(`${fn}: can only declare methods of a class`);
   }
   if (!Object.prototype.hasOwnProperty.call(cls.prototype, method)) {
     // A static method lives on the constructor, an instance method on its
     // prototype. Only instance methods are dispatched.
     if (Object.prototype.hasOwnProperty.call(cls, method)) {
       throw new TypeError(
-        `callable: ${cls.name}.${method} is static; only instance methods can be callable`
+        `${fn}: ${cls.name}.${method} is static; only instance methods can be declared`
       );
     }
+  }
+  // A misspelt name would otherwise declare nothing, silently.
+  if (!hasInstanceMethod(cls, method)) {
+    throw new TypeError(
+      `${fn}: ${cls.name || 'anonymous class'} has no method ${printable(method)}`
+    );
   }
 }
 
@@ -172,6 +195,9 @@ export function callable(level: CallableLevel): MethodDecorator {
  * ```js
  * declareCallable(MyProvider, {listMyThings: 'user', ping: 'public'});
  * ```
+ *
+ * Throws a `TypeError` for a name the class (or a super class) has no instance
+ * method for, and for a static method.
  */
 export function declareCallable(
   cls: Function,
@@ -183,7 +209,7 @@ export function declareCallable(
   const entries = Object.entries(methods ?? {});
   for (const [method, level] of entries) {
     assertLevel(level);
-    assertInstanceMethod(cls, method);
+    assertInstanceMethod(cls, method, 'declareCallable');
   }
   const map = ownMap(cls, true);
   for (const [method, level] of entries) {
@@ -254,6 +280,9 @@ export function internal(): MethodDecorator {
  * ```js
  * declareInternal(SomeImportedProvider, ['dangerousMethod']);
  * ```
+ *
+ * Throws a `TypeError` for a name the class (or a super class) has no instance
+ * method for, and for a static method.
  */
 export function declareInternal(cls: Function, methods: string[]): void {
   if (typeof cls !== 'function') {
@@ -266,7 +295,7 @@ export function declareInternal(cls: Function, methods: string[]): void {
     if (typeof method !== 'string' || !method) {
       throw new TypeError('declareInternal: method names must be non-empty strings');
     }
-    assertInstanceMethod(cls, method);
+    assertInstanceMethod(cls, method, 'declareInternal');
   }
   const set = ownInternalSet(cls, true);
   for (const method of methods) {
