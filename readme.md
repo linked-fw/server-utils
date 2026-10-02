@@ -36,6 +36,35 @@ On the backend, `Server.call` calls the local server directly and follows the sa
 - **No provider.** A call that no provider handles resolves `undefined` by default. With `rejectOnError` it rejects with status 501.
 - **Provider throws.** A provider method that throws always rejects. With `rejectOnError` the rejection is a `ServerCallError` with status 500, and the original error is kept as `cause`.
 
+### Authentication hook
+
+An auth package keeps a session alive around server calls by registering an `AuthHandler`. server-utils has no knowledge of tokens: the handler changes the default headers (`Server.addDefaultHeaders` / `Server.removeDefaultHeaders`), and each request's headers are built after the hook has run.
+
+```tsx
+import { Server } from '@_linked/server-utils/utils/Server';
+
+Server.setAuthHandler({
+  // before every request: e.g. refresh a token that has already expired
+  async beforeRequest(url, init) {
+    if (tokenExpired()) await refresh(); // refresh() calls Server.addDefaultHeaders(...)
+  },
+  // after a 401: resolve true to send the request again, once, with the current default headers
+  async onUnauthorized(url, response) {
+    return refresh();
+  },
+});
+```
+
+- **Which calls.** Every call made over HTTP: `Server.call`, `Server.customPost` and `Server.callCustomShapeMethod`. Calls made directly against the local server on the backend do not use it. There is one handler; setting another replaces it and `null` removes it.
+- **`init` is a preview.** To change what is sent, change the default headers.
+- **401 only.** A 403 means the caller is known and not allowed; refreshing does not help, so it is not passed to `onUnauthorized`.
+- **At most one retry per call.** The retry's response goes to the caller as is: a second 401 is not passed to `onUnauthorized` again. If the default headers changed while the request was in flight (another call refreshed meanwhile), a 401 is retried once without asking.
+- **Concurrency.** Retry state belongs to each call. Making concurrent refreshes share one round trip is the handler's job.
+- **A throwing hook** is logged and treated as "no change" / "do not retry"; the call goes on.
+- **Response actions are not retried.** A provider that answers `200` with a response action (for example `@_linked/auth`'s `ENFORCE_SIGNIN`) has already run, and may have written something before deciding the caller is not signed in, so sending the request again is not safe. Response actions keep going to `Server.registerActionHandler`.
+
+`callCustomShapeMethod` sends the default headers, except `Content-Type` (its body is often `FormData`, which needs the browser to set the boundary). Headers passed to it win. Its body is sent again on a retry, so use a body that can be (a string, `FormData`, a `Blob`), not a stream.
+
 ## LinkedEmail
 
 Send emails from anywhere in the backend.
