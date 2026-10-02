@@ -1,5 +1,13 @@
 # @\_linked/server-utils
 
+## 1.6.0
+
+### Minor Changes
+
+- [#68](https://github.com/linked-fw/server-utils/pull/68) [`dac7599`](https://github.com/linked-fw/server-utils/commit/dac7599d354b0adda0ab83b8c024cacfca2d2f3c) Thanks [@flyon](https://github.com/flyon)! - The server-utils ontology moves from `http://lincd.org/ont/lincd-server-utils/` to `https://linked.cm/ont/server-utils/`, the first-party scheme every public package uses (`https://linked.cm/ont/{publicSlug}/`, next to its shapes at `https://linked.cm/shape/server-utils/`).
+  
+  No data migration is needed. No stored data is typed with its only term, `Lincd_API_Client`. The only store triple that carried it is the `sh:targetClass` of the synced `Lincd_API_Client` shape description, which boot sync deletes and recreates, so it moves to the new IRI the next time the server starts (with `syncShapesOnBoot: false`, at the next sync). The prefix key (`lincd-server-utils`) and the `ontologies/lincd-server-utils` module are unchanged; code that hard-codes `http://lincd.org/ont/lincd-server-utils/` must be updated.
+
 ## 1.5.3
 
 ### Patch Changes
