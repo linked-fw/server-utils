@@ -1,6 +1,7 @@
 // Runs against the build output: `npm run build && npm test`.
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { registerNodeShape } from '@_linked/core/utils/ShapeClass';
 import {
   checkQueryAccess,
@@ -365,9 +366,91 @@ describe('raw queries', () => {
     assert.equal(await statusOf(raw(signedIn)), 403);
   });
 
-  it('still need a session in enforce mode', async () => {
+  // A server-to-server caller: no session, but a token over the query text
+  // that the app's raw authorizer verifies.
+  const SECRET = 'test-secret';
+  const QUERY = 'SELECT * WHERE { ?s ?p ?o }';
+  const sign = (text) => createHmac('sha256', SECRET).update(text).digest('hex');
+  const service = (token, rawBody) => {
+    const body = { query: QUERY, token };
+    return {
+      kind: 'http',
+      request: { linkedAuth: undefined, body, rawBody: rawBody ?? JSON.stringify(body) },
+      response: {},
+    };
+  };
+  const tokenAuthorizer = (c) => {
+    if (c.linkedAuth?.userAccount) return;
+    const token = c.body?.token;
+    const expected = sign(c.query);
+    if (
+      typeof token !== 'string' ||
+      token.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(token), Buffer.from(expected))
+    ) {
+      throw Object.assign(new Error('Authentication required'), { name: 'ServerCallError', status: 401 });
+    }
+  };
+
+  for (const mode of ['warn', 'enforce']) {
+    it(`admit a caller without a session when the raw authorizers accept it (${mode})`, async () => {
+      quiet();
+      const seen = [];
+      cleanups.push(registerRawQueryAuthorizer((c) => { seen.push(c); tokenAuthorizer(c); }, { owner: 'test' }));
+      assert.equal(await statusOf(raw(service(sign(QUERY)), mode)), 'ok');
+      assert.equal(seen[0].query, QUERY);
+      assert.deepEqual(seen[0].body, { query: QUERY, token: sign(QUERY) });
+      assert.equal(seen[0].rawBody, JSON.stringify(seen[0].body));
+      assert.equal(seen[0].linkedAuth, undefined);
+      assert.equal(await statusOf(raw(signedIn, mode)), 'ok');
+    });
+
+    it(`refuse a caller without a session when a raw authorizer rejects it (${mode})`, async () => {
+      quiet();
+      cleanups.push(registerRawQueryAuthorizer(tokenAuthorizer, { owner: 'test' }));
+      assert.equal(await statusOf(raw(service(undefined), mode)), 401);
+      assert.equal(await statusOf(raw(service(sign('SELECT * WHERE { ?a ?b ?c }')), mode)), 401);
+      assert.equal(await statusOf(raw(http(), mode)), 401);
+      // every authorizer must accept: a second one rejecting refuses a valid token
+      cleanups.push(
+        registerRawQueryAuthorizer(() => { throw Object.assign(new Error('no'), { status: 403 }); }, { owner: 'other' })
+      );
+      assert.equal(await statusOf(raw(service(sign(QUERY)), mode)), 403);
+    });
+
+    it(`refuse a caller without a session when no raw authorizer is registered (${mode})`, async () => {
+      quiet();
+      assert.equal(getRawQueryAuthorizers().length, 0);
+      assert.equal(await statusOf(raw(service(sign(QUERY)), mode)), 403);
+      assert.equal(await statusOf(raw(http(), mode)), 403);
+    });
+
+    it(`keep the session requirement for analysed queries, raw authorizers or not (${mode})`, async () => {
+      quiet();
+      cleanups.push(registerRawQueryAuthorizer(() => {}, { owner: 'test' }));
+      const anon = service(sign(QUERY));
+      const select = runWithCallContext(anon, () =>
+        checkQueryAccess({ operation: 'select', query: {}, ir: selectName, mode, endpoint: 'selectQuery' })
+      );
+      assert.equal(await statusOf(select), mode === 'enforce' ? 401 : 'ok');
+      const update = runWithCallContext(anon, () =>
+        checkQueryAccess({ operation: 'update', query: {}, ir: updateName('http://ex/p1'), mode, endpoint: 'updateQuery', probeProtectedNodes: async () => false })
+      );
+      assert.equal(await statusOf(update), 401);
+    });
+  }
+
+  it('pass rawBody only when it is a string or bytes', async () => {
     quiet();
-    cleanups.push(registerRawQueryAuthorizer(() => {}, { owner: 'test' }));
-    assert.equal(await statusOf(raw(http(), 'enforce')), 401);
+    const seen = [];
+    cleanups.push(registerRawQueryAuthorizer((c) => { seen.push(c); }, { owner: 'test' }));
+    const bytes = Buffer.from('{"query":"x"}');
+    await raw(service('t', bytes));
+    await raw({ kind: 'http', request: { linkedAuth: undefined, body: {}, rawBody: { not: 'bytes' } }, response: {} });
+    await raw(signedIn);
+    assert.equal(seen[0].rawBody, bytes);
+    assert.equal(seen[1].rawBody, undefined);
+    assert.equal(seen[2].rawBody, undefined);
+    assert.equal(seen[2].body, undefined);
   });
 });

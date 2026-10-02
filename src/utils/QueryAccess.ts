@@ -16,7 +16,10 @@
  *   a status, typically 403) to refuse.
  * - `registerRawQueryAuthorizer(fn, {owner})`: raw SPARQL (`/api/select-raw`)
  *   cannot be analysed, so it is refused unless an app registers one of these;
- *   then every registered raw authorizer must accept the query.
+ *   then every registered raw authorizer must accept the query. They run
+ *   before the session check, and their acceptance is the authentication: a
+ *   server-to-server caller with no session can be admitted on a token the
+ *   authorizer verifies.
  *
  * The registries are keyed by `owner`, so re-running registration (an HMR
  * reload of the registering provider) replaces the earlier entry instead of
@@ -63,7 +66,15 @@ export interface RawQueryAuthorizationContext {
   query: string;
   /** The endpoint, e.g. `api/select-raw`. */
   endpoint: string;
+  /** The parsed request body (`request.body`), e.g. to read a token sent beside the query. */
+  body: unknown;
+  /**
+   * The request body exactly as received (`request.rawBody`), when the server
+   * kept it, for verifying a signature over the bytes. `undefined` otherwise.
+   */
+  rawBody: Uint8Array | string | undefined;
   request: any;
+  /** The session, if any. A raw query may arrive without one; see `registerRawQueryAuthorizer`. */
   linkedAuth: any;
 }
 
@@ -162,6 +173,12 @@ export function registerQueryAuthorizer(
  * authorizer runs; any of them throwing refuses the query. A raw query cannot be
  * analysed for the shapes it touches, so the authorizer decides on the text and
  * the caller alone (for example: only for a service account, and only `SELECT`).
+ *
+ * Raw authorizers run before the session check, in every mode: when they all
+ * accept, the query runs with or without a session. So an authorizer must
+ * authenticate the caller itself, from `linkedAuth` or from a credential it
+ * verifies (such as a service token bound to the body, see `body` and
+ * `rawBody`), and throw (401 or 403) when neither is good.
  *
  * Replaces the same owner's earlier raw authorizer. Returns a function that
  * removes it (only if it is still the registered one).
@@ -574,10 +591,11 @@ function refuse(status: number, message: string, log?: string): never {
  * enters an HTTP context for every request it receives.) Order:
  *
  * 1. the operation must match the query's kind (400 otherwise);
- * 2. no session → a mutation is refused (401) in every mode; anything else is
+ * 2. raw SPARQL → refused (403) unless raw authorizers are registered; then they
+ *    all run, with or without a session, and nothing below applies (their
+ *    acceptance stands in for the session check);
+ * 3. no session → a mutation is refused (401) in every mode; anything else is
  *    logged once, or 401 in enforce mode;
- * 3. raw SPARQL → refused (403) unless raw authorizers are registered; then they
- *    all run, and nothing below applies;
  * 4. a query that could not be analysed → 400;
  * 5. a protected shape (`deny: 'all'`) anywhere in the query, or a written shape
  *    under either mode on a mutation → 403 in both modes (registering a shape is
@@ -606,20 +624,6 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
     }
   }
 
-  if (!linkedAuth?.userAccount) {
-    if (isMutation) {
-      refuse(401, 'Authentication required');
-    }
-    if (o.mode === 'enforce') {
-      refuse(401, 'Authentication required');
-    }
-    warnOnce(
-      'anon:' + endpoint,
-      `[linked] anonymous ${endpoint} on the generic query plane. ` +
-        `This is refused (401) once rpcExposure is 'enforce'.`
-    );
-  }
-
   if (o.raw) {
     const rawAuthorizers = getRawQueryAuthorizers();
     if (rawAuthorizers.length === 0) {
@@ -633,6 +637,11 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
     const rawContext: RawQueryAuthorizationContext = {
       query: typeof o.query === 'string' ? o.query : String(o.query ?? ''),
       endpoint,
+      body: request?.body,
+      rawBody:
+        typeof request?.rawBody === 'string' || request?.rawBody instanceof Uint8Array
+          ? request.rawBody
+          : undefined,
       request,
       linkedAuth,
     };
@@ -640,6 +649,20 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
       await authorize(rawContext);
     }
     return;
+  }
+
+  if (!linkedAuth?.userAccount) {
+    if (isMutation) {
+      refuse(401, 'Authentication required');
+    }
+    if (o.mode === 'enforce') {
+      refuse(401, 'Authentication required');
+    }
+    warnOnce(
+      'anon:' + endpoint,
+      `[linked] anonymous ${endpoint} on the generic query plane. ` +
+        `This is refused (401) once rpcExposure is 'enforce'.`
+    );
   }
 
   if (o.ir === undefined) {

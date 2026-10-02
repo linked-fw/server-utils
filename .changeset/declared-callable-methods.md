@@ -15,5 +15,5 @@ Behaviour changes for apps on the generic query plane (`checkQueryAccess`):
 
 - mutations require a signed-in user in every mode (401);
 - a create may not choose the ids of the nodes it creates (`__id`), 403;
-- raw SPARQL is refused (403) in every mode unless the app registers a raw query authorizer;
+- raw SPARQL is refused (403) in every mode unless the app registers a raw query authorizer. Raw authorizers run before the session check, and every one of them accepting admits the query with or without a session, so a server-to-server caller can authenticate with a token the authorizer verifies; the context carries the query text, the parsed `body` and, when the server kept it, the received `rawBody`. A raw authorizer must therefore check the caller itself;
 - a query that cannot be analysed is refused (400), as is an operation that does not match the query's kind.
