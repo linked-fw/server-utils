@@ -38,6 +38,12 @@
       ]
     }
   },
+  "linked": {
+    "serverOnly": [
+      "./utils/CallContext",
+      "./utils/QueryAccess"
+    ]
+  },
   "license": "ISC",
   "scripts": {
     "start": "npm exec linked dev",

@@ -1,8 +1,74 @@
 import path from 'path';
+import { getCallContext, runWithCallContext } from './CallContext.js';
+
+// Values assigned to `provider.request`/`provider.response` directly, per
+// instance. Kept outside the instance so no class field can collide with the
+// accessors below.
+const legacyOverrides = new WeakMap<object, { request?: any; response?: any }>();
+const warnedLegacyAssignment = new Set<string>();
+
+function warnLegacyAssignment(provider: object, field: string) {
+  const name = provider?.constructor?.name || 'BackendProvider';
+  const key = name + '.' + field;
+  if (warnedLegacyAssignment.has(key)) return;
+  warnedLegacyAssignment.add(key);
+  console.warn(
+    `[linked] ${name} assigns this.${field}. Providers are shared by every ` +
+      `call in flight, so an assigned ${field} leaks between users. Read ` +
+      `this.${field} (it comes from the current call) instead of setting it.`
+  );
+}
 
 export class BackendProvider {
-  public request;
-  public response;
+  /**
+   * The HTTP request of the call this provider is currently serving.
+   *
+   * Read from the per-call context (see CallContext), so concurrent calls each
+   * see their own request even though the provider is a singleton. Undefined
+   * outside an HTTP call (boot, jobs, backend-to-backend calls made outside a
+   * request).
+   *
+   * Assigning it still works for existing code, but pins that value on this
+   * instance for every later call, and warns once.
+   */
+  get request(): any {
+    const override = legacyOverrides.get(this);
+    if (override && 'request' in override) return override.request;
+    const ctx = getCallContext();
+    return ctx?.kind === 'http' ? ctx.request : undefined;
+  }
+  set request(value: any) {
+    this.assignLegacy('request', value);
+  }
+
+  /** The HTTP response of the current call; see `request`. */
+  get response(): any {
+    const override = legacyOverrides.get(this);
+    if (override && 'response' in override) return override.response;
+    const ctx = getCallContext();
+    return ctx?.kind === 'http' ? ctx.response : undefined;
+  }
+  set response(value: any) {
+    this.assignLegacy('response', value);
+  }
+
+  private assignLegacy(field: 'request' | 'response', value: any) {
+    const ctx = getCallContext();
+    // `this.request = request` inside an initRequest override assigns what the
+    // context already holds: nothing to pin.
+    if (ctx?.kind === 'http' && ctx[field] === value) {
+      const override = legacyOverrides.get(this);
+      if (override) delete override[field];
+      return;
+    }
+    warnLegacyAssignment(this, field);
+    let override = legacyOverrides.get(this);
+    if (!override) {
+      override = {};
+      legacyOverrides.set(this, override);
+    }
+    override[field] = value;
+  }
 
   // Express router layers this provider added via `registerRoute`, tracked so
   // `disposeRoutes()` can remove them on an HMR reload. Vite re-runs a
@@ -87,7 +153,14 @@ export class BackendProvider {
         }
       }
       try {
-        return await handler(req, res, next);
+        // A route serves one HTTP call: give it the per-call context, so
+        // `this.request` inside the provider is this request. Middleware is
+        // left alone; it hands on to the rest of the chain.
+        return await (isMiddleware
+          ? handler(req, res, next)
+          : runWithCallContext({ kind: 'http', request: req, response: res }, () =>
+              handler(req, res, next)
+            ));
       } catch (err) {
         clearTimeout(watchdog);
         console.error(
@@ -141,10 +214,13 @@ export class BackendProvider {
     return null;
   }
 
-  initRequest(request, response): Promise<void> | void {
-    this.request = request;
-    this.response = response;
-  }
+  /**
+   * Called for every HTTP call before the method runs. The base implementation
+   * does nothing: the request is available as `this.request` from the per-call
+   * context. Subclasses may still override it (and call `super`) to prepare
+   * request-scoped data, such as reading a session onto `request`.
+   */
+  initRequest(request, response): Promise<void> | void {}
 
   setupBeforeControllers() {}
   setupBeforeCatchAllControllers() {}
@@ -190,11 +266,11 @@ export class BackendProvider {
   protected callOtherProvider<S extends BackendProvider>(
     provider: typeof BackendProvider
   ): S {
-    //init and return a new instance of the given provider with the same request and response
-    let authProvider = new provider(this.server, this.lincdServer);
-    authProvider.request = this.request;
-    authProvider.response = this.response;
-    // authProvider.initRequest(this.request, this.response);
-    return authProvider as S;
+    // A new instance of the given provider. It reads request and response from
+    // the same per-call context as this one, so nothing is copied over.
+    const other = new provider(this.server, this.lincdServer);
+    const override = legacyOverrides.get(this);
+    if (override) legacyOverrides.set(other, { ...override });
+    return other as S;
   }
 }
