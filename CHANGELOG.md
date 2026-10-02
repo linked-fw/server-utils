@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.8.0
+
+### Minor Changes
+
+- [#72](https://github.com/linked-fw/server-utils/pull/72) [`9eea902`](https://github.com/linked-fw/server-utils/commit/9eea902a78f62039d917cca15959a5742823485d) Thanks [@flyon](https://github.com/flyon)! - Add `Server.setAuthHandler` / `LincdServerProxy.setAuthHandler`, a supported hook for keeping a session alive around server calls: `beforeRequest(url, init)` runs before every HTTP call, and `onUnauthorized(url, response)` on a 401 decides whether the call is sent again, once, with the current default headers. `callCustomShapeMethod` now sends the default headers (except `Content-Type`) and goes through the same hook.
+
 ## 1.7.0
 
 ### Minor Changes
