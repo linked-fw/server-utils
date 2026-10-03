@@ -14,12 +14,10 @@
  * - `registerQueryAuthorizer(fn, {owner})`: app-specific checks, run for every
  *   query that passed the protected-shape rules. Throw (a `ServerCallError` with
  *   a status, typically 403) to refuse.
- * - `registerRawQueryAuthorizer(fn, {owner})`: raw SPARQL (`/api/select-raw`)
- *   cannot be analysed, so it is refused unless an app registers one of these;
- *   then every registered raw authorizer must accept the query. They run
- *   before the session check, and their acceptance is the authentication: a
- *   server-to-server caller with no session can be admitted on a token the
- *   authorizer verifies.
+ * - Raw SPARQL (`/api/select-raw`) cannot be analysed, so none of the rules
+ *   above apply to it. The server's `rawQueries` setting decides instead:
+ *   `'session'` (the default) runs it for any signed-in session, `'off'`
+ *   refuses it.
  *
  * The registries are keyed by `owner`, so re-running registration (an HMR
  * reload of the registering provider) replaces the earlier entry instead of
@@ -61,31 +59,15 @@ export type QueryAuthorizer = (
   ctx: QueryAuthorizationContext
 ) => void | Promise<void>;
 
-export interface RawQueryAuthorizationContext {
-  /** The raw SPARQL text as the client sent it. */
-  query: string;
-  /** The endpoint, e.g. `api/select-raw`. */
-  endpoint: string;
-  /** The parsed request body (`request.body`), e.g. to read a token sent beside the query. */
-  body: unknown;
-  /**
-   * The request body exactly as received (`request.rawBody`), when the server
-   * kept it, for verifying a signature over the bytes. `undefined` otherwise.
-   */
-  rawBody: Uint8Array | string | undefined;
-  request: any;
-  /** The session, if any. A raw query may arrive without one; see `registerRawQueryAuthorizer`. */
-  linkedAuth: any;
-}
-
-export type RawQueryAuthorizer = (
-  ctx: RawQueryAuthorizationContext
-) => void | Promise<void>;
+/**
+ * Who may run raw SPARQL on the generic plane: `'session'` any signed-in
+ * session, `'off'` nobody.
+ */
+export type RawQueriesMode = 'off' | 'session';
 
 type Registry = {
   protectedShapes: Map<string, Map<QueryDenyMode, (Function | string)[]>>;
   authorizers: Map<string, QueryAuthorizer>;
-  rawAuthorizers: Map<string, RawQueryAuthorizer>;
 };
 
 const REGISTRY_KEY = Symbol.for('@_linked/server-utils:queryAccess');
@@ -97,17 +79,13 @@ function registry(): Registry {
       value: {
         protectedShapes: new Map(),
         authorizers: new Map(),
-        rawAuthorizers: new Map(),
       } as Registry,
       enumerable: false,
       configurable: false,
       writable: false,
     });
   }
-  const reg = g[REGISTRY_KEY];
-  // a registry created by an older copy of this module
-  if (!reg.rawAuthorizers) reg.rawAuthorizers = new Map();
-  return reg;
+  return g[REGISTRY_KEY];
 }
 
 function assertOwner(owner: unknown, fn: string): asserts owner is string {
@@ -165,44 +143,6 @@ export function registerQueryAuthorizer(
       reg.authorizers.delete(o.owner);
     }
   };
-}
-
-/**
- * Allow raw SPARQL on the generic plane (`/api/select-raw`), which is refused
- * in every mode until at least one of these is registered. Every registered raw
- * authorizer runs; any of them throwing refuses the query. A raw query cannot be
- * analysed for the shapes it touches, so the authorizer decides on the text and
- * the caller alone (for example: only for a service account, and only `SELECT`).
- *
- * Raw authorizers run before the session check, in every mode: when they all
- * accept, the query runs with or without a session. So an authorizer must
- * authenticate the caller itself, from `linkedAuth` or from a credential it
- * verifies (such as a service token bound to the body, see `body` and
- * `rawBody`), and throw (401 or 403) when neither is good.
- *
- * Replaces the same owner's earlier raw authorizer. Returns a function that
- * removes it (only if it is still the registered one).
- */
-export function registerRawQueryAuthorizer(
-  fn: RawQueryAuthorizer,
-  o: { owner: string }
-): () => void {
-  assertOwner(o?.owner, 'registerRawQueryAuthorizer');
-  if (typeof fn !== 'function') {
-    throw new TypeError('registerRawQueryAuthorizer: expected a function');
-  }
-  const reg = registry();
-  reg.rawAuthorizers.set(o.owner, fn);
-  return () => {
-    if (reg.rawAuthorizers.get(o.owner) === fn) {
-      reg.rawAuthorizers.delete(o.owner);
-    }
-  };
-}
-
-/** The registered raw-query authorizers, in registration order. */
-export function getRawQueryAuthorizers(): RawQueryAuthorizer[] {
-  return [...registry().rawAuthorizers.values()];
 }
 
 function shapeIdOf(shape: Function | string): string | undefined {
@@ -565,8 +505,13 @@ export interface CheckQueryAccessOptions {
    * (400), unless `raw` is set.
    */
   ir: unknown;
-  /** A raw SPARQL query (`query` is its text); see `registerRawQueryAuthorizer`. */
+  /** A raw SPARQL query (`query` is its text); see `rawQueries`. */
   raw?: boolean;
+  /**
+   * Who may run a raw query: `'session'` (the default) any signed-in session,
+   * `'off'` nobody. The server passes its `rawQueries` setting.
+   */
+  rawQueries?: RawQueriesMode;
   /** `'enforce'` refuses what `'warn'` only logs. */
   mode: 'warn' | 'enforce';
   /** Used in log lines. */
@@ -591,9 +536,9 @@ function refuse(status: number, message: string, log?: string): never {
  * enters an HTTP context for every request it receives.) Order:
  *
  * 1. the operation must match the query's kind (400 otherwise);
- * 2. raw SPARQL → refused (403) unless raw authorizers are registered; then they
- *    all run, with or without a session, and nothing below applies (their
- *    acceptance stands in for the session check);
+ * 2. raw SPARQL → refused (403) when `rawQueries` is `'off'`; otherwise it
+ *    needs a session (401 without one, in every mode), and nothing below
+ *    applies;
  * 3. no session → a mutation is refused (401) in every mode; anything else is
  *    logged once, or 401 in enforce mode;
  * 4. a query that could not be analysed → 400;
@@ -625,28 +570,16 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
   }
 
   if (o.raw) {
-    const rawAuthorizers = getRawQueryAuthorizers();
-    if (rawAuthorizers.length === 0) {
+    // anything but 'session' (a typo included) refuses
+    if ((o.rawQueries ?? 'session') !== 'session') {
       warnOnce(
         'raw:' + endpoint,
-        `[linked] refused ${endpoint}: raw SPARQL is only accepted when the app ` +
-          `registers a raw query authorizer (registerRawQueryAuthorizer).`
+        `[linked] refused ${endpoint}: raw SPARQL is turned off (rawQueries: 'off').`
       );
       refuse(403, 'Query not permitted');
     }
-    const rawContext: RawQueryAuthorizationContext = {
-      query: typeof o.query === 'string' ? o.query : String(o.query ?? ''),
-      endpoint,
-      body: request?.body,
-      rawBody:
-        typeof request?.rawBody === 'string' || request?.rawBody instanceof Uint8Array
-          ? request.rawBody
-          : undefined,
-      request,
-      linkedAuth,
-    };
-    for (const authorize of rawAuthorizers) {
-      await authorize(rawContext);
+    if (!linkedAuth?.userAccount) {
+      refuse(401, 'Authentication required');
     }
     return;
   }
