@@ -18,13 +18,8 @@ import './components/AppRoot.js';
 import './components/Html.js';
 import './components/AppContext.js';
 import './components/Spinner.js';
-import './utils/ShapeIndex.js';
 
 //TYPES
-export type {
-  ShapeDetails,
-  PropertyDetails,
-} from './types/ShapeDetails.js';
 export type {
   RouteConfig,
   RoutesConfig,
