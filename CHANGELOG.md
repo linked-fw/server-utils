@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.12.1
+
+### Patch Changes
+
+- [#89](https://github.com/linked-fw/server-utils/pull/89) [`c8b0841`](https://github.com/linked-fw/server-utils/commit/c8b0841dfda6d6d865f651caa7c9aa7e8e254d67) Thanks [@flyon](https://github.com/flyon)! - Publish only the files consumers need; the tarball no longer includes `.changeset/`, `.gitattributes`, `.github/`, `docs/`, `jest.config.cjs`, `renovate.json` or tsconfig files.
+
 ## 1.12.0
 
 ### Minor Changes
