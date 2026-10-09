@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.12.2
+
+### Patch Changes
+
+- [#91](https://github.com/linked-fw/server-utils/pull/91) [`0d526a1`](https://github.com/linked-fw/server-utils/commit/0d526a14e34f098d8c26ce2bd289721541f6d4b1) Thanks [@flyon](https://github.com/flyon)! - Declares its React peer; accepts React 18 or 19. The components import `react`, which is now a `peerDependencies` entry (`^18.2.0 || ^19.0.0`) so the consumer's single React copy is used.
+
 ## 1.12.1
 
 ### Patch Changes
