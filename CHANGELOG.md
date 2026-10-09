@@ -1,5 +1,13 @@
 # @\_linked/server-utils
 
+## 1.12.3
+
+### Patch Changes
+
+- [#93](https://github.com/linked-fw/server-utils/pull/93) [`39ec6a0`](https://github.com/linked-fw/server-utils/commit/39ec6a0e43aa9c631100ffc9987efd142f397ffb) Thanks [@flyon](https://github.com/flyon)! - Removes the unused `@capacitor/core` dependency: nothing in this package imports it, so consumers no longer install Capacitor 5 alongside their own copy.
+  
+  The `build` script is now `linked build`, the same build CI and the release workflow already run, so a local build produces the published `lib/` (compiled output, copied `src` assets and rewritten ESM import specifiers). The `build-esm` and `copy-to-lib` scripts and the `rimraf`/`copyfiles` dev dependencies are removed.
+
 ## 1.12.2
 
 ### Patch Changes
