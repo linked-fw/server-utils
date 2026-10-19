@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.14.1
+
+### Patch Changes
+
+- [#103](https://github.com/linked-fw/server-utils/pull/103) [`d65dd1c`](https://github.com/linked-fw/server-utils/commit/d65dd1c922da37bd5ab55056cfc5988c163c04b8) Thanks [@flyon](https://github.com/flyon)! - `JSONWriter` and `LincdServerProxy` recognise a `Shape`, `ShapeSet` or `CoreSet` (and a `Shape` class) made by another installed copy of `@_linked/core`: the checks use `isLinkedInstance` instead of `instanceof`. Requires `@_linked/core` `^2.36.2`.
+
 ## 1.14.0
 
 ### Minor Changes
