@@ -11,6 +11,20 @@
 import { Shape } from '@_linked/core/shapes/Shape';
 import { ShapeSet } from '@_linked/core/collections/ShapeSet';
 import { CoreSet } from '@_linked/core/collections/CoreSet';
+import { isLinkedInstance, linkedErrorBrand } from '@_linked/core/utils/linkedError';
+
+const SHAPE_BRAND = linkedErrorBrand('@_linked/core', 'Shape');
+
+/** `Shape` or a subclass of it, from any copy of core. */
+function isShapeClass(object: any): boolean {
+  if (object === Shape) return true;
+  const proto = typeof object === 'function' ? object.prototype : null;
+  if (!proto) return false;
+  return (
+    isLinkedInstance(proto, Shape) ||
+    Object.prototype.hasOwnProperty.call(proto, SHAPE_BRAND)
+  );
+}
 
 export class JSONWriter {
   /**
@@ -41,16 +55,16 @@ export class JSONWriter {
       return { __dt: object.toISOString() };
     }
 
-    if (object instanceof Shape) {
+    if (isLinkedInstance(object, Shape)) {
       return this.convertShape(object);
     }
 
-    // Shape class (not instance) — check prototype chain
-    if (object?.prototype instanceof Shape || object === Shape) {
+    // Shape class (not instance)
+    if (isShapeClass(object)) {
       return this.convertShapeClass(object);
     }
 
-    if (object instanceof ShapeSet) {
+    if (isLinkedInstance(object, ShapeSet)) {
       return this.convertCoreSet(object, 'ss');
     }
 
@@ -58,7 +72,7 @@ export class JSONWriter {
       return this.convertCoreMap(object);
     }
 
-    if (object instanceof CoreSet) {
+    if (isLinkedInstance(object, CoreSet)) {
       return this.convertCoreSet(object, 'cs');
     }
 

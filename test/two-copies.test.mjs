@@ -85,3 +85,41 @@ describe('a ServerCallError from another copy', () => {
     assert.equal(isLinkedError(new Error('boom'), b.ServerCallError), false);
   });
 });
+
+describe('JSONWriter with values from a second copy of core', () => {
+  // `?copy` makes each core module a distinct instance, as a second installed copy would be.
+  const coreCopy = (sub) => import(`${import.meta.resolve(`@_linked/core/${sub}`)}?copy=b`);
+
+  it('recognises a Shape, a Shape class, a ShapeSet and a CoreSet from the other copy', async () => {
+    const { JSONWriter } = await import('../lib/esm/utils/JSONWriter.js');
+    const { Shape: OwnShape } = await import('@_linked/core/shapes/Shape');
+    const { Shape } = await coreCopy('shapes/Shape');
+    const { ShapeSet } = await coreCopy('collections/ShapeSet');
+    const { CoreSet } = await coreCopy('collections/CoreSet');
+    assert.notEqual(Shape, OwnShape);
+
+    class Person extends Shape {}
+    Object.defineProperty(Person, 'shape', { value: { id: 'urn:shape:Person' } });
+    const person = Object.create(Person.prototype, {
+      id: { value: 'urn:person:1' },
+      nodeShape: { value: { id: 'urn:shape:Person' } },
+    });
+    assert.equal(person instanceof OwnShape, false);
+
+    assert.deepEqual(JSONWriter.toJsObject(person), { __s: 'urn:shape:Person', u: 'urn:person:1' });
+    assert.deepEqual(JSONWriter.toJsObject(Person), { __sc: 'urn:shape:Person' });
+    assert.equal(JSONWriter.toJsObject(Shape).__sc, Shape.shape?.id);
+    assert.deepEqual(JSONWriter.toJsObject(new ShapeSet([person])), {
+      __type: 'ss',
+      entries: [{ __s: 'urn:shape:Person', u: 'urn:person:1' }],
+    });
+    assert.deepEqual(JSONWriter.toJsObject(new CoreSet([1, 2])), { __type: 'cs', entries: [1, 2] });
+  });
+
+  it('leaves plain classes and objects alone', async () => {
+    const { JSONWriter } = await import('../lib/esm/utils/JSONWriter.js');
+    class Plain {}
+    assert.equal(typeof JSONWriter.toJsObject(Plain), 'function');
+    assert.deepEqual(JSONWriter.toJsObject({ a: new Set() }), { a: {} });
+  });
+});
