@@ -9,6 +9,8 @@
  * A LinkedServer also throws it for backend-to-backend calls, so the `status`
  * is available on both the HTTP path and the local server path.
  */
+import { brandLinkedError, isLinkedError } from '@_linked/core/utils/linkedError';
+
 export class ServerCallError extends Error {
   readonly status: number;
 
@@ -23,9 +25,12 @@ export class ServerCallError extends Error {
 
   /**
    * True for a `ServerCallError`, including one created by another copy of this
-   * package (so it does not rely on `instanceof`).
+   * package (so it does not rely on `instanceof`). Equivalent to
+   * `isLinkedError(err, ServerCallError)`, plus the `name`/`status` check for an
+   * error from a copy that predates the brand.
    */
   static is(err: unknown): err is ServerCallError {
+    if (isLinkedError(err, ServerCallError)) return true;
     return (
       !!err &&
       typeof err === 'object' &&
@@ -34,3 +39,4 @@ export class ServerCallError extends Error {
     );
   }
 }
+brandLinkedError(ServerCallError, '@_linked/server-utils', 'ServerCallError');

@@ -97,3 +97,14 @@ export class MyBackendProvider extends BackendProvider {
   }
 }
 ```
+
+## Shared state and error brands
+
+A module of this package can be evaluated twice in one runtime (Vite's SSR runner and Node under
+`linked start`, or two browser bundles). State that callers set — `Server.setLocalServer`,
+`addDefaultHeaders`, `setAuthHandler`, `registerActionHandler`, `LinkedEmail.setDefaultProvider`,
+the live-update log, request data — is kept on `globalThis` with `sharedState` from
+`@_linked/core`, so every copy sees it. `ServerCallError` is branded: match it with
+`isLinkedError(err, ServerCallError)` from `@_linked/core` (or `ServerCallError.is(err)`), not
+`instanceof`. New code follows the same rules; see
+[shared state and error brands](https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md).

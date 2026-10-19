@@ -1,5 +1,6 @@
 import { Shape } from '@_linked/core/shapes/Shape';
 import type { NodeReferenceValue } from '@_linked/core/utils/NodeReference';
+import { sharedState } from '@_linked/core/utils/sharedState';
 import { ServerCallError } from './ServerCallError.js';
 
 export { ServerCallError } from './ServerCallError.js';
@@ -77,22 +78,41 @@ function getInstanceNode(shape: Shape | typeof Shape): NodeReferenceValue {
   return null;
 }
 
+/**
+ * The configuration callers set on `LincdServerProxy` (default headers, the auth handler, the
+ * response-action handlers). It is shared by every copy of this module in the process, so
+ * headers or handlers an app sets reach calls made through a second copy. See
+ * https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md.
+ */
+const proxyState = sharedState('@_linked/server-utils', 'LincdServerProxy', () => ({
+  defaultHeaders: {
+    Accept: 'application/json, text/plain, */*',
+    'Content-Type': 'application/json',
+  } as Record<string, string>,
+  actionHandlers: new Map<string, ActionHandler[]>(),
+  authHandler: null as AuthHandler | null,
+}));
+
 export class LincdServerProxy {
   /**
    * Use this key in a json response to trigger an action on the frontend.
    */
   static RESPONSE_ACTION_KEY: string = '__action';
-  static actionHandlers: Map<string, ActionHandler[]> = new Map();
+  static get actionHandlers(): Map<string, ActionHandler[]> {
+    return proxyState.actionHandlers;
+  }
   /**
    * Is set by Server utility. Allows a LincdServer to bypass the proxy on the backend.
    */
   localServer: any;
   private rootUrl: string;
 
-  static defaultHeaders = {
-    Accept: 'application/json, text/plain, */*',
-    'Content-Type': 'application/json',
-  };
+  static get defaultHeaders(): Record<string, string> {
+    return proxyState.defaultHeaders;
+  }
+  static set defaultHeaders(headers: Record<string, string>) {
+    proxyState.defaultHeaders = headers;
+  }
 
   constructor(rootUrl: string | { id?: string }) {
     this.rootUrl = typeof rootUrl === 'string' ? rootUrl : rootUrl?.id || '';
@@ -146,7 +166,12 @@ export class LincdServerProxy {
    */
   static UNAUTHENTICATED_ACTION = 'unauthenticated';
 
-  private static authHandler: AuthHandler | null = null;
+  private static get authHandler(): AuthHandler | null {
+    return proxyState.authHandler;
+  }
+  private static set authHandler(handler: AuthHandler | null) {
+    proxyState.authHandler = handler;
+  }
 
   /**
    * Register the {@link AuthHandler} for every server call made over HTTP (`call`,

@@ -25,6 +25,7 @@
 //   }
 // }
 //
+import { sharedState } from '@_linked/core/utils/sharedState';
 import { Server } from './Server.js';
 import { packageName } from '../package.js';
 
@@ -38,9 +39,23 @@ export interface UpdateMessage {
    */
   to?: string;
 }
-export const updates: UpdateMessage[] = [];
+/**
+ * The in-memory update log and the worker's pending batch. Shared by every copy of this module
+ * in the process: `LinkedLiveUpdate.send` from one copy must reach `getUpdatesSince` served by
+ * another. See https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md.
+ */
+const liveUpdateState = sharedState('@_linked/server-utils', 'LinkedLiveUpdate', () => ({
+  updates: [] as UpdateMessage[],
+  batchedUpdates: [] as UpdateMessage[],
+}));
+export const updates: UpdateMessage[] = liveUpdateState.updates;
 export class LinkedLiveUpdate {
-  static batchedUpdates: UpdateMessage[] = [];
+  static get batchedUpdates(): UpdateMessage[] {
+    return liveUpdateState.batchedUpdates;
+  }
+  static set batchedUpdates(batch: UpdateMessage[]) {
+    liveUpdateState.batchedUpdates = batch;
+  }
 
   /**
    * To be used on the backend to send updates to the frontend.
