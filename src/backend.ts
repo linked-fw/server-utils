@@ -132,7 +132,7 @@ export class LincdServerUtilsBackendProvider extends BackendProvider {
 }
 
 declareCallable(LincdServerUtilsBackendProvider, {
-  getUpdatesSince: 'user',
+  getUpdatesSince: 'signed-in',
 });
 // Boot-time setup, run by setupBeforeControllers; never over HTTP.
 declareInternal(LincdServerUtilsBackendProvider, ['setupLiveUpdatesMulticore']);

@@ -28,7 +28,7 @@ describe('LincdServerUtilsBackendProvider.getUpdatesSince', () => {
   });
 
   it('is declared callable for signed-in users only', () => {
-    assert.equal(getOwnCallableLevel(LincdServerUtilsBackendProvider, 'getUpdatesSince'), 'user');
+    assert.equal(getOwnCallableLevel(LincdServerUtilsBackendProvider, 'getUpdatesSince'), 'signed-in');
     assert.equal(getOwnCallableLevel(LincdServerUtilsBackendProvider, 'setupLiveUpdatesMulticore'), undefined);
   });
 

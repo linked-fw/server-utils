@@ -7,9 +7,10 @@
  * with `getOwnCallableLevel`.
  *
  * - `'public'`: anyone may call it, signed in or not.
- * - `'user'`: the server answers 401 before the method runs when the request has
- *   no session. The method body takes the user from the request context, never
- *   from its arguments.
+ * - `'signed-in'`: the server answers 401 before the method runs when the request
+ *   has no session. The method body takes the user from the request context,
+ *   never from its arguments. `'user'` is a deprecated alias the server treats
+ *   exactly like `'signed-in'`.
  *
  * The declaration is stored as a non-enumerable OWN `Map` on the constructor and
  * is always read with `hasOwnProperty`. Static properties are inherited through
@@ -30,19 +31,31 @@
  * This module has no imports on purpose: it is safe to load on the client too.
  */
 
-export type CallableLevel = 'public' | 'user';
+export type CallableLevel =
+  | 'public'
+  | 'signed-in'
+  /** @deprecated Use `'signed-in'`; `'user'` is treated exactly like it. */
+  | 'user';
 
 const CALLABLE_KEY = Symbol.for('@_linked/server-utils:callable');
 const INTERNAL_KEY = Symbol.for('@_linked/server-utils:internal');
 
-const LEVELS: ReadonlySet<string> = new Set(['public', 'user']);
+const LEVELS: ReadonlySet<string> = new Set(['public', 'signed-in', 'user']);
 
 function assertLevel(level: unknown): asserts level is CallableLevel {
   if (typeof level !== 'string' || !LEVELS.has(level)) {
     throw new TypeError(
-      `callable: unknown level ${JSON.stringify(level)}; use 'public' or 'user'`
+      `callable: unknown level ${JSON.stringify(level)}; use 'public' or 'signed-in'`
     );
   }
+}
+
+/**
+ * True for a level that needs a session: `'signed-in'`, or its deprecated alias
+ * `'user'`. Read a level with this rather than comparing it to a string.
+ */
+export function requiresSession(level: CallableLevel | undefined): boolean {
+  return level === 'signed-in' || level === 'user';
 }
 
 function ownMap(cls: Function, create: boolean): Map<string, CallableLevel> | undefined {
@@ -152,7 +165,7 @@ function assertInstanceMethod(cls: Function, method: string, fn: string) {
  *
  * ```ts
  * class MyProvider extends BackendProvider {
- *   @callable('user')
+ *   @callable('signed-in')
  *   listMyThings() { ... }
  * }
  * ```
@@ -193,7 +206,7 @@ export function callable(level: CallableLevel): MethodDecorator {
  * compile yourself).
  *
  * ```js
- * declareCallable(MyProvider, {listMyThings: 'user', ping: 'public'});
+ * declareCallable(MyProvider, {listMyThings: 'signed-in', ping: 'public'});
  * ```
  *
  * Throws a `TypeError` for a name the class (or a super class) has no instance
@@ -220,7 +233,9 @@ export function declareCallable(
 
 /**
  * The level `cls` itself declares for `method`, ignoring anything declared on
- * its super classes. `undefined` when the class does not declare it.
+ * its super classes. `undefined` when the class does not declare it. A method
+ * declared with the deprecated `'user'` reports `'user'`; use `requiresSession`
+ * to treat it like `'signed-in'`.
  */
 export function getOwnCallableLevel(
   cls: Function,
