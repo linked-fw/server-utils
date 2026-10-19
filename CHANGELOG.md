@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.14.0
+
+### Minor Changes
+
+- [#101](https://github.com/linked-fw/server-utils/pull/101) [`b7b0beb`](https://github.com/linked-fw/server-utils/commit/b7b0bebf362d582c0d79b03745273080009af75f) Thanks [@flyon](https://github.com/flyon)! - `@callable('signed-in')` (and `declareCallable(Cls, {method: 'signed-in'})`) is the level for a method that needs a session. `'user'` stays accepted as a deprecated alias and is treated exactly like `'signed-in'`; `getOwnCallableLevel` reports the level as declared. New `requiresSession(level)` answers whether a level needs a session, for either spelling.
+
 ## 1.13.0
 
 ### Minor Changes
