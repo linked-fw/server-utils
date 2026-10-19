@@ -1,6 +1,7 @@
 import { Shape } from '@_linked/core/shapes/Shape';
 import type { NodeReferenceValue } from '@_linked/core/utils/NodeReference';
 import { sharedState } from '@_linked/core/utils/sharedState';
+import { isLinkedInstance } from '@_linked/core/utils/linkedError';
 import { ServerCallError } from './ServerCallError.js';
 
 export { ServerCallError } from './ServerCallError.js';
@@ -65,14 +66,14 @@ function sameHeaders(a: Record<string, any>, b: Record<string, any>) {
 }
 
 function getShapeClass(shape: typeof Shape | Shape) {
-  if (shape instanceof Shape) {
+  if (isLinkedInstance(shape, Shape)) {
     return Object.getPrototypeOf(shape).constructor;
   }
   return shape;
 }
 
 function getInstanceNode(shape: Shape | typeof Shape): NodeReferenceValue {
-  if (shape instanceof Shape && shape.id) {
+  if (isLinkedInstance(shape, Shape) && shape.id) {
     return { id: shape.id };
   }
   return null;
