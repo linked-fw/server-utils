@@ -1,4 +1,13 @@
-let requestData = {};
+import { sharedState } from '@_linked/core/utils/sharedState';
+
+/**
+ * Data the backend provides to the frontend. Shared by every copy of this module in the
+ * runtime: `initFrontend` writes it through one copy and a component may read it through
+ * another. See https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md.
+ */
+const requestState = sharedState('@_linked/server-utils', 'RequestData', () => ({
+  data: {} as any,
+}));
 
 /**
  * Get a certain key from the request data.
@@ -6,7 +15,7 @@ let requestData = {};
  * @param key
  */
 export function getRequestData(key?: string): any {
-  return key ? requestData[key] : requestData;
+  return key ? requestState.data[key] : requestState.data;
 }
 
 /**
@@ -16,10 +25,10 @@ export function getRequestData(key?: string): any {
  * @param value
  */
 export function setRequestData(key, value?) {
-  if (value && requestData) {
-    requestData[key] = value;
+  if (value && requestState.data) {
+    requestState.data[key] = value;
   } else if (!value) {
     //single argument = overwrite the whole array
-    requestData = key;
+    requestState.data = key;
   }
 }

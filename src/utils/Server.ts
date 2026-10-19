@@ -4,6 +4,7 @@ import type {
   AuthHandler,
   CallConfig,
 } from './LincdServerProxy.js';
+import { sharedState } from '@_linked/core/utils/sharedState';
 import { LincdServerProxy } from './LincdServerProxy.js';
 
 // `export type` — CallConfig is an interface (type-only). A plain
@@ -13,9 +14,18 @@ import { LincdServerProxy } from './LincdServerProxy.js';
 export type { AuthHandler, CallConfig } from './LincdServerProxy.js';
 export { ServerCallError } from './ServerCallError.js';
 
-let proxy = process.env.SITE_ROOT
-  ? LincdServerProxy.getFromURI(process.env.SITE_ROOT)
-  : null;
+/**
+ * The proxy every `Server.*` call goes through, and with it the `localServer` that
+ * `setLocalServer` gives it. Shared by every copy of this module in the process: `LinkedServer`
+ * sets the local server on one copy, and a call made through another copy must use it too, not
+ * fall back to HTTP. See
+ * https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md.
+ */
+const serverState = sharedState('@_linked/server-utils', 'Server', () => ({
+  proxy: process.env.SITE_ROOT
+    ? LincdServerProxy.getFromURI(process.env.SITE_ROOT)
+    : null,
+}));
 
 /**
  * This helper class makes API calls to a LincdServer backend easy by calling Server.call()
@@ -26,16 +36,16 @@ export class Server {
    * Only set this value from a node.js backend. This allows server calls to directly access a LincdServer without going through the proxy using fetch()
    */
   static setLocalServer(server) {
-    if (!proxy) {
+    if (!serverState.proxy) {
       throw Error('Environment variable SITE_ROOT is not set');
     }
-    proxy.localServer = server;
+    serverState.proxy.localServer = server;
   }
   static getLocalServer() {
-    if (!proxy) {
+    if (!serverState.proxy) {
       throw Error('Environment variable SITE_ROOT is not set');
     }
-    return proxy.localServer;
+    return serverState.proxy.localServer;
   }
 
   /**
@@ -108,11 +118,11 @@ export class Server {
     method: string | CallConfig,
     ...args: any[]
   ): Promise<any> {
-    return proxy.call(shapeOrPackageName as Shape, method, ...args);
+    return serverState.proxy.call(shapeOrPackageName as Shape, method, ...args);
   }
 
   static async customPost(route, ...args: any[]): Promise<any> {
-    return proxy.customPost(route, ...args);
+    return serverState.proxy.customPost(route, ...args);
   }
 
   static async callCustomShapeMethod(
@@ -122,7 +132,7 @@ export class Server {
     body,
     headers?
   ): Promise<any> {
-    return proxy.callCustomShapeMethod(
+    return serverState.proxy.callCustomShapeMethod(
       shape,
       httpMethod,
       methodName,

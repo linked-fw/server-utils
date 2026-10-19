@@ -11,7 +11,7 @@ module.exports = {
   roots: ['<rootDir>/src'],
   testMatch: ['**/*.test.{ts,tsx,js}'],
   transform: {
-    '^.+\\.tsx?$': [
+    '^.+\\.[jt]sx?$': [
       'babel-jest',
       {
         configFile: false,
@@ -25,6 +25,12 @@ module.exports = {
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    // `@_linked/core`'s export map is `import`-only, which jest's CJS resolver cannot follow.
+    // These two modules have no imports, so their build output is mapped directly and
+    // transpiled like the source (see `transformIgnorePatterns`).
+    '^@_linked/core/utils/(sharedState|linkedError)$':
+      '<rootDir>/node_modules/@_linked/core/lib/esm/utils/$1.js',
   },
+  transformIgnorePatterns: ['/node_modules/(?!@_linked/core/)'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
 };
