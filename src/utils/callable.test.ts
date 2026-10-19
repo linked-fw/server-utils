@@ -5,13 +5,15 @@ import {
   getOwnCallableLevel,
   internal,
   isDeclaredInternal,
+  requiresSession,
   resetCallableConflictWarnings,
+  type CallableLevel,
 } from './callable.js';
 
 // Decorators are applied by hand: the jest babel transform does not compile
 // legacy decorators. `callable(level)(proto, key, descriptor)` is exactly what
 // tsc emits for `@callable(level)` under experimentalDecorators.
-function decorate(cls: any, method: string, level: 'public' | 'user') {
+function decorate(cls: any, method: string, level: CallableLevel) {
   const descriptor = Object.getOwnPropertyDescriptor(cls.prototype, method);
   callable(level)(cls.prototype, method, descriptor);
 }
@@ -26,11 +28,11 @@ describe('callable', () => {
     own() {}
   }
   decorate(Base, 'ping', 'public');
-  decorate(Sub, 'own', 'user');
+  decorate(Sub, 'own', 'signed-in');
 
   it('records the level on the declaring class', () => {
     expect(getOwnCallableLevel(Base, 'ping')).toBe('public');
-    expect(getOwnCallableLevel(Sub, 'own')).toBe('user');
+    expect(getOwnCallableLevel(Sub, 'own')).toBe('signed-in');
   });
 
   it('does not inherit declarations: an override must redeclare', () => {
@@ -78,9 +80,30 @@ describe('callable', () => {
       a() {}
       b() {}
     }
-    declareCallable(Plain, { a: 'public', b: 'user' });
+    declareCallable(Plain, { a: 'public', b: 'signed-in' });
     expect(getOwnCallableLevel(Plain, 'a')).toBe('public');
-    expect(getOwnCallableLevel(Plain, 'b')).toBe('user');
+    expect(getOwnCallableLevel(Plain, 'b')).toBe('signed-in');
+  });
+
+  it("accepts the deprecated 'user' and treats it like 'signed-in'", () => {
+    class Old {
+      a() {}
+      b() {}
+    }
+    declareCallable(Old, { a: 'user' });
+    decorate(Old, 'b', 'user');
+    expect(requiresSession(getOwnCallableLevel(Old, 'a'))).toBe(true);
+    expect(requiresSession(getOwnCallableLevel(Old, 'b'))).toBe(true);
+    expect(requiresSession('signed-in')).toBe(true);
+    expect(requiresSession('public')).toBe(false);
+    expect(requiresSession(undefined)).toBe(false);
+  });
+
+  it('rejects an unknown level and names the levels to use', () => {
+    class Bad {
+      a() {}
+    }
+    expect(() => declareCallable(Bad, { a: 'admin' as any })).toThrow(/'public' or 'signed-in'/);
   });
 });
 
@@ -165,7 +188,7 @@ describe('internal', () => {
       a() {}
     }
     declareInternal(Base, ['a']);
-    declareCallable(Sub, { a: 'user' });
+    declareCallable(Sub, { a: 'signed-in' });
     expect(isDeclaredInternal(Sub, 'a')).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
   });
@@ -204,7 +227,7 @@ describe('internal', () => {
     expect(isDeclaredInternal(Provider, 'reall')).toBe(false);
     // inherited methods are fine
     declareInternal(Provider, ['inherited']);
-    declareCallable(Provider, { real: 'user' });
+    declareCallable(Provider, { real: 'signed-in' });
     expect(isDeclaredInternal(Provider, 'inherited')).toBe(true);
   });
 });
