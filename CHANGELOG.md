@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.13.0
+
+### Minor Changes
+
+- [#98](https://github.com/linked-fw/server-utils/pull/98) [`53959fd`](https://github.com/linked-fw/server-utils/commit/53959fd02ca26b0aa5bf63b9fe8c4b81654315f0) Thanks [@flyon](https://github.com/flyon)! - State callers set is shared by every copy of this package in a runtime: `Server`'s proxy and local server, `LincdServerProxy`'s default headers, auth handler and action handlers, `LinkedEmail`'s provider, the live-update log and batch, and request data now live on `globalThis` (core's `sharedState`). `ServerCallError` is branded, so `isLinkedError(err, ServerCallError)` and `ServerCallError.is` match one thrown by another copy. Requires `@_linked/core` 2.36.0.
+
 ## 1.12.3
 
 ### Patch Changes
