@@ -65,6 +65,69 @@ Server.setAuthHandler({
 
 `callCustomShapeMethod` sends the default headers, except `Content-Type` (its body is often `FormData`, which needs the browser to set the boundary). Headers passed to it win. Its body is sent again on a retry, so use a body that can be (a string, `FormData`, a `Blob`), not a stream.
 
+## Which provider methods a client may call
+
+A provider method is reachable over `/call/...` only when it is declared. TypeScript `private` and `protected` do not exist at runtime, so the declaration is what decides. There are three declarations, all in `@_linked/server-utils/utils/callable` (no server imports, safe to load on the client):
+
+- `@callable('public' | 'user')` on an instance method, or `declareCallable(Cls, {method: level})` in plain JS.
+- `@internal()` on an instance method, or `declareInternal(Cls, ['method'])`. It also works on a class you import from another package.
+- No declaration at all.
+
+What each one does when a client calls the method:
+
+| Declaration | Over HTTP |
+| --- | --- |
+| `@callable('public')` | Anyone may call it, signed in or not. |
+| `@callable('user')` | Without a session the server answers `401` before the method body runs. The body reads the user from the call context, never from its arguments. |
+| undeclared | Depends on `server.rpcExposure` in `@_linked/server`: in `warn` mode (the default) it runs and is logged once; in `enforce` mode it is `501`, as if the method did not exist. |
+| `@internal()` | Never dispatched over HTTP, in any mode (`501`), even when it is also declared callable. Backend code still calls it with `Server.call`. |
+
+**A method that acts for a signed-in user must be declared `@callable('user')` and read the user with `requireSessionUser()`.** `'public'` lets anyone in, and a user id in the arguments is whatever the client sent.
+
+```ts
+import { BackendProvider } from '@_linked/server-utils/utils/BackendProvider';
+import { callable, internal } from '@_linked/server-utils/utils/callable';
+import { requireSessionUser } from '@_linked/server-utils/utils/CallContext';
+
+export default class NotesBackendProvider extends BackendProvider {
+  @callable('public')
+  getPublicNotes() {
+    return loadPublicNotes();
+  }
+
+  @callable('user')
+  getMyNotes() {
+    const user = requireSessionUser(); // the session's user account, not an argument
+    return loadNotesOf(user);
+  }
+
+  @internal()
+  purgeNotes(olderThan: Date) {
+    // only reachable from backend code
+  }
+}
+```
+
+`requireSessionUser()` throws a `401` `ServerCallError` in an HTTP call without a session, so it is also the check for a method whose declaration someone forgets.
+
+Some rules worth knowing:
+
+- Only instance methods can be declared; a static method or a misspelt name throws a `TypeError`.
+- A subclass that overrides a declared method without redeclaring it keeps the strictest level declared up its class chain (`'user'` over `'public'`). `@internal()` is inherited by overrides and wins over a callable declaration (with a warning).
+- Backend-to-backend calls (`Server.call` on the server) skip these checks, internal methods included.
+
+### Work with no user: `runAsSystem`
+
+Every HTTP call runs in a call context that carries its request, so the user of a call follows everything it awaits or schedules. Work that is not done for that user, such as a job, a timer or a queue consumer started from inside a request, must be wrapped in `runAsSystem`, or it keeps running as that request's user:
+
+```ts
+import { runAsSystem } from '@_linked/server-utils/utils/CallContext';
+
+runAsSystem(() => startNightlyReindex(), 'nightly reindex');
+```
+
+Inside a system context `requireSessionUser()` throws a plain `Error` (there is no user to take); code there that acts for a user gets that user passed explicitly. `getCallContext()` returns `{kind: 'http', request, response}` or `{kind: 'system', reason}`.
+
 ## LinkedEmail
 
 Send emails from anywhere in the backend.
