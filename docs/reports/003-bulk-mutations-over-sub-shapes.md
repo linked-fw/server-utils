@@ -69,7 +69,51 @@ Account`, `Secret ← SubSecret`):
 
 ## Verification
 
-GATE_PLACEHOLDER
+Worktree `~/web/wt/070-U1/packages-local/_linked-server-utils`, resolved through the plan 070
+overlay (core `store-inference` def5cd9). Before the change, the quick gate was 86/86.
+
+Quick gate (`node ~/web/wt/070/packages-local/_linked-cli/lib/esm/launch.js build && npm run
+test:calls`), after rebasing onto `store-inference`:
+
+```
+✔ Build successful
+... build 5.09s user 0.57s system 107% cpu 5.246 total
+# tests 95
+# suites 22
+# pass 95
+# fail 0
+# duration_ms 707.124459
+npm run test:calls  1.51s user 0.29s system 147% cpu 1.222 total
+```
+
+Full gate (`npm test` = `test:unit && test:calls`): `test:unit` is red, as it is on the
+unmodified tree in this layout, so `npm test` exits 1 before `test:calls`. `test:calls` is
+green when run alone (above).
+
+```
+Test Suites: 5 failed, 5 total
+Tests:       0 total
+npm run test:unit  4.34s user 1.06s system 132% cpu 4.093 total
+```
+
+Each suite fails with `SyntaxError: Unexpected token '['` at
+`src/utils/LincdServerProxy.ts:59` (`new Map<string, ActionHandler[]>()`, so the TypeScript is
+not transpiled). It fails the same way with this change stashed.
+
+After landing on `store-inference` and building there, `@_linked/server`'s two suites over the
+query plane, in `~/web/wt/070/packages-local/_linked-server` (which resolves
+`@_linked/server-utils/utils/QueryAccess` to the landed
+`~/web/wt/070/packages-local/_linked-server-utils/lib/esm/utils/QueryAccess.js`):
+
+```
+$ NODE_OPTIONS=--experimental-vm-modules npx jest --config jest.config.cjs src/tests/rpc-exposure.test.ts src/tests/query-plane-catalog.test.ts
+PASS src/tests/query-plane-catalog.test.ts
+PASS src/tests/rpc-exposure.test.ts
+Test Suites: 2 passed, 2 total
+Tests:       56 passed, 56 total
+Time:        5.09 s
+... 12.95s user 2.04s system 225% cpu 6.654 total
+```
 
 ## Review
 
