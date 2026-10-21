@@ -364,6 +364,17 @@ describe('bulk mutations', () => {
     assert.equal(await statusOf(check(signedIn, deleteAll(Thing), 'delete')), 'ok');
   });
 
+  it("ask a function rule on a sub-shape's own store", async () => {
+    quiet();
+    const seen = [];
+    const people = withAccess({ name: 'people' }, { write: (ctx) => (seen.push(ctx), false) });
+    pin(people, PersonShape);
+    assert.equal(await statusOf(check(signedIn, deleteAll(Thing), 'delete')), 403);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].store, people);
+    assert.ok(seen[0].shapes.has(Person));
+  });
+
   it('check the access rules before the span', async () => {
     quiet();
     pin(withAccess({ name: 'people' }, { write: 'none' }), PersonShape);
