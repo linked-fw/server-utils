@@ -7,6 +7,8 @@ import {
   registerNodeShape,
 } from '@_linked/core/utils/ShapeClass';
 import { Shape } from '@_linked/core/shapes/Shape';
+import { ShapeCatalog } from '@_linked/core/utils/ShapeCatalog';
+import { setOntologyHierarchy } from '@_linked/core/ontology/classHierarchy';
 import { LinkedStorage } from '@_linked/core/utils/LinkedStorage';
 import {
   checkQueryAccess,
@@ -287,6 +289,134 @@ describe('checkQueryAccess', () => {
     };
     assert.equal(await statusOf(check(signedIn, nested, 'update')), 403);
     assert.equal(await statusOf(check(signedIn, updateLinkAccount, 'update')), 'ok');
+  });
+});
+
+describe('bulk mutations', () => {
+  // Thing ← Person, Account (Person and Account extend Thing); Secret ← SubSecret
+  const deleteAll = (shape) => ({ kind: 'delete_all', shape });
+  const deleteWhere = (shape) => ({
+    kind: 'delete_where',
+    shape,
+    where: { kind: 'binary_expr', operator: '=', left: { kind: 'property_expr', sourceAlias: 'a0', property: Thing + '/name' }, right: { kind: 'literal_expr', value: 'x' } },
+    wherePatterns: [],
+  });
+  const updateWhere = (shape) => ({
+    kind: 'update_where',
+    shape,
+    data: { shape, fields: [{ property: Thing + '/name', value: 'y' }] },
+  });
+  const statusAndMessage = async (p) => {
+    try {
+      await p;
+      return ['ok'];
+    } catch (e) {
+      return [e?.status ?? -1, e?.message];
+    }
+  };
+
+  it('are refused for a caller not allowed on a sub-shape', async () => {
+    quiet();
+    pin(withAccess({ name: 'people' }, { write: 'none' }), PersonShape);
+    assert.equal(await statusOf(check(signedIn, deleteAll(Thing), 'delete')), 403);
+    assert.equal(await statusOf(check(signedIn, deleteWhere(Thing), 'delete')), 403);
+    assert.equal(await statusOf(check(signedIn, updateWhere(Thing), 'update')), 403);
+    // without a session the 401 comes first
+    assert.equal(await statusOf(check(http(), deleteAll(Thing), 'delete')), 401);
+  });
+
+  it('let a function rule see the sub-shapes', async () => {
+    quiet();
+    const seen = [];
+    withAccess(appStore, { write: (ctx) => (seen.push(ctx), !ctx.shapes.has(Person)) });
+    for (const [ir, operation] of [
+      [deleteAll(Thing), 'delete'],
+      [deleteWhere(Thing), 'delete'],
+      [updateWhere(Thing), 'update'],
+    ]) {
+      seen.length = 0;
+      assert.equal(await statusOf(check(signedIn, ir, operation)), 403, ir.kind);
+      assert.equal(seen.length, 1, ir.kind);
+      for (const shape of [Thing, Person, Account]) assert.ok(seen[0].shapes.has(shape), `${ir.kind} ${shape}`);
+      assert.ok(!seen[0].shapes.has(Secret), ir.kind);
+    }
+    // a leaf root reaches no other shape
+    seen.length = 0;
+    assert.equal(await statusOf(check(signedIn, deleteAll(Account), 'delete')), 'ok');
+    assert.ok(!seen[0].shapes.has(Person));
+  });
+
+  it('are refused, not half-applied, when the sub-shapes live in another store', async () => {
+    quiet();
+    pin({ name: 'people' }, PersonShape);
+    for (const [ir, operation] of [
+      [deleteAll(Thing), 'delete'],
+      [deleteWhere(Thing), 'delete'],
+      [updateWhere(Thing), 'update'],
+    ]) {
+      const [status, message] = await statusAndMessage(check(signedIn, ir, operation));
+      assert.equal(status, 409, ir.kind);
+      assert.ok(message.startsWith('bulk-mutation-spans-stores: '), message);
+      assert.ok(message.includes(Thing) && message.includes(Person), message);
+    }
+    // one store object per group counts, even with no rule on either
+    LinkedStorage.unsetDatasetForShape(PersonShape);
+    assert.equal(await statusOf(check(signedIn, deleteAll(Thing), 'delete')), 'ok');
+  });
+
+  it('check the access rules before the span', async () => {
+    quiet();
+    pin(withAccess({ name: 'people' }, { write: 'none' }), PersonShape);
+    assert.equal(await statusOf(check(signedIn, deleteAll(Thing), 'delete')), 403);
+  });
+
+  it('leave a leaf shape as it was', async () => {
+    quiet();
+    pin(withAccess({ name: 'things' }, { write: 'none' }), ThingShape);
+    pin({ name: 'people' }, PersonShape);
+    // Person's own store decides; Thing's store is not reached
+    assert.equal(await statusOf(check(signedIn, deleteAll(Person), 'delete')), 'ok');
+    assert.equal(await statusOf(check(signedIn, deleteWhere(Person), 'delete')), 'ok');
+    assert.equal(await statusOf(check(signedIn, deleteAll(Secret), 'delete')), 'ok');
+  });
+
+  it('follow the ontology hierarchy, not only the shape tree', async () => {
+    quiet();
+    pin(withAccess({ name: 'secrets' }, { write: 'none' }), SecretShape);
+    assert.equal(await statusOf(check(signedIn, deleteAll(Thing), 'delete')), 'ok');
+    setOntologyHierarchy([{ s: Cls('Secret'), o: Cls('Thing') }]);
+    try {
+      assert.equal(await statusOf(check(signedIn, deleteAll(Thing), 'delete')), 403);
+      withAccess(LinkedStorage.getDatasetForShapeClass(SecretShape), {});
+      const [status, message] = await statusAndMessage(check(signedIn, deleteAll(Thing), 'delete'));
+      assert.equal(status, 409);
+      assert.ok(message.includes(SubSecret), message);
+    } finally {
+      setOntologyHierarchy([]);
+    }
+  });
+
+  it("resolve the sub-shapes in the query's shape catalog", async () => {
+    quiet();
+    const C = NS + 'cat/';
+    const catalog = ShapeCatalog.from([
+      { id: C + 'Item', targetClass: { id: Cls('CatItem') }, propertyShapes: [] },
+      { id: C + 'Gadget', targetClass: { id: Cls('CatGadget') }, extends: { id: C + 'Item' }, propertyShapes: [] },
+    ]);
+    const ir = deleteAll(C + 'Item');
+    Object.defineProperty(ir, 'catalog', { value: catalog, enumerable: false });
+    const seen = [];
+    withAccess(appStore, { write: (ctx) => (seen.push(ctx), true) });
+    assert.equal(await statusOf(check(signedIn, ir, 'delete')), 'ok');
+    assert.ok(seen[0].shapes.has(C + 'Gadget'));
+    assert.ok(!seen[0].shapes.has(Person));
+  });
+
+  it('do not change selects and counts over a super shape', async () => {
+    quiet();
+    pin(withAccess({ name: 'people' }, { read: 'none' }), PersonShape);
+    assert.equal(await statusOf(check(signedIn, scan(Thing))), 'ok');
+    assert.equal(await statusOf(check(signedIn, { kind: 'count', root: scan(Thing).root })), 'ok');
   });
 });
 

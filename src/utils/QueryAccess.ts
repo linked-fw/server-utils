@@ -33,7 +33,15 @@
  *   every other shape it touches (traverses into, casts to, owns a property it
  *   uses), except a shape that only stands in as the super shape of another one
  *   in the query (the owner of an inherited property such as `name`). It must
- *   satisfy the rule of every store it maps to.
+ *   satisfy the rule of every store it maps to. The mapping runs in the
+ *   query's shape catalog, as `LinkedStorage` routes it.
+ * - A bulk mutation (`deleteAll`, `deleteWhere`, `update().forAll()` and
+ *   `update().where()`) changes every instance of the root shape's class and of
+ *   its subclasses (the store infers them). So it also maps to every registered
+ *   shape whose class is a subclass of the root's (`subClassesOf`), and must
+ *   satisfy each of their stores' rules too. When the root and those sub-shapes
+ *   route to more than one store, it is refused (409,
+ *   `bulk-mutation-spans-stores: …`) rather than applied to one store only.
  * - Raw SPARQL (`/api/select-raw`) cannot be analysed, so store rules do not
  *   apply to it. The server's `rawQueries` setting decides instead: `'session'`
  *   (the default) runs it for any signed-in session, `'off'` refuses it.
@@ -42,11 +50,15 @@
  * duplicate copies of this module share it.
  */
 import {
+  catalogOf,
   getAllNodeShapes,
   getShapeClass,
   getSuperShapes,
   getRegistryVersion,
+  getTargetClassId,
+  withShapeCatalog,
 } from '@_linked/core/utils/ShapeClass';
+import { subClassesOf } from '@_linked/core/ontology/classHierarchy';
 import { LinkedStorage } from '@_linked/core/utils/LinkedStorage';
 import { getCallContext } from './CallContext.js';
 import { ServerCallError } from './ServerCallError.js';
@@ -59,7 +71,11 @@ export interface QueryAccessContext {
   query: unknown;
   /** The lowered IR of the query. */
   ir: unknown;
-  /** Every node shape the query touches: scanned, written, traversed into, or owning a property it uses. */
+  /**
+   * Every node shape the query touches: scanned, written, traversed into, or
+   * owning a property it uses. For a bulk mutation, also every registered shape
+   * whose class is a subclass of the root shape's class.
+   */
   shapes: ReadonlySet<string>;
   /** Every property shape the query uses. */
   propertyShapes: ReadonlySet<string>;
@@ -307,6 +323,9 @@ const KINDS_BY_OPERATION: Record<QueryOperation, ReadonlySet<string>> = {
 
 const MUTATIONS: ReadonlySet<QueryOperation> = new Set(['create', 'update', 'delete']);
 
+/** IR kinds that change every instance of a class (and so of its subclasses), not named nodes. */
+const BULK_MUTATIONS: ReadonlySet<string> = new Set(['delete_all', 'delete_where', 'update_where']);
+
 /** The store `LinkedStorage` routes a node shape to (its default when unpinned). */
 function storeForShape(shapeId: string): unknown {
   let shapeClass: Function | undefined;
@@ -344,6 +363,25 @@ export function deciderShapes(ir: any, targets: QueryTargets): Set<string> {
     if (!ancestors.has(shape)) deciders.add(shape);
   }
   return deciders;
+}
+
+/**
+ * The registered shapes a bulk mutation rooted at `rootShape` reaches: the root
+ * and every shape whose target class is the root's class or a subclass of it.
+ * Resolve in the query's shape catalog. Empty for a root without a target class.
+ */
+export function bulkSubShapes(rootShape: string): Set<string> {
+  const shapes = new Set<string>();
+  const rootShapeData = getAllNodeShapes().get(rootShape);
+  const rootClass = rootShapeData ? getTargetClassId(rootShapeData) : undefined;
+  if (!rootClass) return shapes;
+  const classes = subClassesOf(rootClass);
+  for (const [id, shape] of getAllNodeShapes()) {
+    const cls = getTargetClassId(shape);
+    if (cls && classes.has(cls)) shapes.add(id);
+  }
+  shapes.add(rootShape);
+  return shapes;
 }
 
 export interface CheckQueryAccessOptions {
@@ -389,7 +427,9 @@ function refuse(status: number, message: string, log?: string): never {
  *    applies;
  * 3. a query that could not be analysed → 400;
  * 4. the rule of every store the query maps to (see the module comment);
- * 5. a mutation that chooses the ids of new nodes → 403.
+ * 5. a bulk mutation whose root and sub-shapes route to more than one store
+ *    → 409 (`bulk-mutation-spans-stores: …`);
+ * 6. a mutation that chooses the ids of new nodes → 403.
  */
 export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void> {
   const ctx = getCallContext();
@@ -432,12 +472,34 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
   }
 
   const targets = collectQueryTargets(o.ir);
-  const stores = new Map<unknown, string>();
-  for (const shape of deciderShapes(o.ir, targets)) {
-    const store = storeForShape(shape);
-    if (!stores.has(store)) stores.set(store, shape);
-  }
+  const ir = o.ir as any;
+  const bulkRoot = BULK_MUTATIONS.has(ir?.kind) && typeof ir?.shape === 'string' ? (ir.shape as string) : undefined;
+  // Shapes, sub-shapes and stores are resolved in the catalog the query was
+  // lowered in, as LinkedStorage resolves the store that runs it: a shape that
+  // exists only as data in that catalog is unknown to the global registry.
+  const { stores, subShapes, bulkStores } = withShapeCatalog(catalogOf(ir), () => {
+    const deciders = deciderShapes(ir, targets);
+    // added after the ancestor filter, which would otherwise drop the root as
+    // the super shape of its own sub-shapes
+    const subShapes = bulkRoot ? bulkSubShapes(bulkRoot) : new Set<string>();
+    for (const shape of subShapes) deciders.add(shape);
+    const stores = new Map<unknown, string>();
+    for (const shape of deciders) {
+      const store = storeForShape(shape);
+      if (!stores.has(store)) stores.set(store, shape);
+    }
+    // the stores the bulk mutation itself changes, with the shapes routed to each
+    const bulkStores = new Map<unknown, string[]>();
+    for (const shape of subShapes) {
+      const store = storeForShape(shape);
+      const group = bulkStores.get(store);
+      if (group) group.push(shape);
+      else bulkStores.set(store, [shape]);
+    }
+    return { stores, subShapes, bulkStores };
+  });
   if (stores.size === 0) stores.set(LinkedStorage.getDefaultDataset(), '(default)');
+  const ruleShapes: ReadonlySet<string> = subShapes.size ? new Set([...targets.shapes, ...subShapes]) : targets.shapes;
 
   for (const [store, shape] of stores) {
     const access = getStoreAccess(store);
@@ -464,7 +526,7 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
         operation: o.operation,
         query: o.query,
         ir: o.ir,
-        shapes: targets.shapes,
+        shapes: ruleShapes,
         propertyShapes: targets.propertyShapes,
         store,
         request,
@@ -482,6 +544,15 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
       if (!hasSession) refuse(401, 'Authentication required');
       refuse(403, 'Query not permitted', `[linked] refused ${endpoint}: the access rule for ${shape} refused it`);
     }
+  }
+
+  if (bulkRoot && bulkStores.size > 1) {
+    const groups = [...bulkStores.values()].map((shapes) => shapes.sort().join(', '));
+    refuse(
+      409,
+      `bulk-mutation-spans-stores: ${bulkRoot} spans ${bulkStores.size} stores (${groups.join('; ')})`,
+      `[linked] refused ${endpoint}: the bulk mutation on ${bulkRoot} reaches sub-shapes in ${bulkStores.size} stores`
+    );
   }
 
   if (isMutation && collectClientIds(o.ir).length > 0) {
