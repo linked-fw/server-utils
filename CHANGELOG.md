@@ -1,5 +1,27 @@
 # @\_linked/server-utils
 
+## 1.15.0
+
+### Minor Changes
+
+- [#106](https://github.com/linked-fw/server-utils/pull/106) [`636f28a`](https://github.com/linked-fw/server-utils/commit/636f28a31fee9985f892380b9a49d32ebc77ecbf) Thanks [@flyon](https://github.com/flyon)! - Bulk mutations on the generic query plane (`deleteAll`, `deleteWhere`, `update().forAll()` and `update().where()`) are authorized over every sub-shape they reach. They change every instance of the root shape's class and of its subclasses, so the access check now maps them to the root shape plus every registered shape whose target class is in `subClassesOf(root class)` (from `@_linked/core/ontology/classHierarchy`), and the rule of each of those stores must allow the mutation; a function rule sees the sub-shapes in `ctx.shapes`. A bulk mutation whose root and sub-shapes route to more than one store is refused with `ServerCallError(409, 'bulk-mutation-spans-stores: …')` instead of being applied to one store only. Shapes and stores are now resolved in the query's shape catalog, as `LinkedStorage` routes the query, for every generic-plane query: a query lowered in a catalog is judged by the rule of the store it actually runs on (a shape IRI pinned globally but resolved in a catalog now maps to the store the catalog routes it to, usually the default dataset). Needs a `@_linked/core` that exports `@_linked/core/ontology/classHierarchy`.
+
+- [#106](https://github.com/linked-fw/server-utils/pull/106) [`13cd314`](https://github.com/linked-fw/server-utils/commit/13cd314145cdb9a32924e338b9104858d2b8b4a2) Thanks [@flyon](https://github.com/flyon)! - Ontology data: labels, descriptions and types for every term.
+  
+  - `src/data/server-utils.ttl` gains the ontology node (`dcterms:title`, `dcterms:description`,
+    `owl:versionInfo`) and is written in the deterministic Turtle form.
+  - `server-utils:Lincd_API_Client` is typed `owl:Class` (was `rdfs:Class`), with an English label
+    ("Linked API client", was "LINCD API Client") and comment; `rdfs:isDefinedBy` stays.
+
+- [#106](https://github.com/linked-fw/server-utils/pull/106) [`8b70fe3`](https://github.com/linked-fw/server-utils/commit/8b70fe303bc52a32a6fe622d2107b10e80f35ed5) Thanks [@flyon](https://github.com/flyon)! - The ontology data ships as Turtle.
+  
+  - `src/data/server-utils.json` is replaced by `src/data/server-utils.ttl` (the same 4 triples on
+    `server-utils:Lincd_API_Client`: type, label, comment, `rdfs:isDefinedBy`), copied into
+    `lib/esm/data/` by the build. The module exports `dataFiles`.
+  - **Breaking:** `loadData()` now resolves to the Turtle text (`string[]`, read through
+    `@_linked/core/ontology/loadOntologyFiles`, server only) instead of the JSON-LD document, and
+    `data/server-utils.json` is no longer in `lib/esm/`.
+
 ## 1.14.1
 
 ### Patch Changes
