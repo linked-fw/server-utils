@@ -11,7 +11,7 @@ server-utils:
     a owl:Ontology ;
     dcterms:description "Terms of the utilities shared by the Linked server and its clients."@en ;
     dcterms:title "Linked server utilities"@en ;
-    owl:versionInfo "1.14.1" .
+    owl:versionInfo "1.15.0" .
 
 server-utils:Lincd_API_Client
     a owl:Class ;
