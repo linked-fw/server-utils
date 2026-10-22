@@ -1,0 +1,8 @@
+@prefix server-utils: <https://linked.cm/ont/server-utils/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+server-utils:Lincd_API_Client
+    a rdfs:Class ;
+    rdfs:comment "A Client for the data API of LINCD Web Apps" ;
+    rdfs:isDefinedBy server-utils: ;
+    rdfs:label "LINCD API Client" .

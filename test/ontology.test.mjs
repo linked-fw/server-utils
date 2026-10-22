@@ -35,13 +35,11 @@ describe('server-utils ontology', () => {
     assert.equal(legacy.lincdServerUtils, current.serverUtils);
   });
 
-  it('uses the server-utils prefix in its JSON-LD data', async () => {
-    const data = JSON.parse(
-      await readFile(new URL('../lib/esm/data/server-utils.json', import.meta.url), 'utf8'),
-    );
-    assert.equal(data['@context']['server-utils'], NS);
-    assert.equal(data['@context']['lincd-server-utils'], undefined);
-    assert.equal(data['@graph'][0]['@id'], 'server-utils:Lincd_API_Client');
-    assert.equal(await current.loadData().then((d) => d['@context']['server-utils']), NS);
+  it('uses the server-utils prefix in its Turtle data', async () => {
+    const turtle = await readFile(new URL('../lib/esm/data/server-utils.ttl', import.meta.url), 'utf8');
+    assert.match(turtle, /^@prefix server-utils: <https:\/\/linked\.cm\/ont\/server-utils\/> \.$/m);
+    assert.doesNotMatch(turtle, /lincd-server-utils/);
+    assert.match(turtle, /^server-utils:Lincd_API_Client$/m);
+    assert.deepEqual(await current.loadData(), [turtle]);
   });
 });

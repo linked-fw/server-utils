@@ -11,13 +11,7 @@
  * From a sibling module the same import is ordinary and survives.
  */
 import * as terms from './server-utils.js';
-import {loadData, ns} from './server-utils.js';
+import {dataFiles, loadData, ns} from './server-utils.js';
 import {linkedOntology} from '../package.js';
 
-linkedOntology(
-  terms,
-  ns,
-  'server-utils',
-  loadData,
-  '../data/server-utils.json'
-);
+linkedOntology(terms, ns, 'server-utils', loadData, dataFiles);
