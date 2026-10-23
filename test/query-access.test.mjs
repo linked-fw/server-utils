@@ -476,3 +476,183 @@ describe('raw queries', () => {
     assert.equal(await statusOf(runAsSystem(() => checkQueryAccess({ operation: 'select', query: 'ASK {}', ir: undefined, raw: true, mode: 'enforce', rawQueries: 'off' }))), 'ok');
   });
 });
+
+describe('graph queries', () => {
+  // record shapes, as core's NamedGraph and OntologyGraph: the sub-shape's
+  // class extends the super shape's, so a pin of the super shape covers it
+  const GraphRecord = NS + 'GraphRecord';
+  const SubGraphRecord = NS + 'SubGraphRecord';
+  registerNodeShape({ id: GraphRecord, targetClass: { id: Cls('GraphRecord') }, propertyShapes: [] });
+  registerNodeShape({ id: SubGraphRecord, targetClass: { id: Cls('SubGraphRecord') }, extends: { id: GraphRecord }, propertyShapes: [] });
+  class GraphRecordShape extends Shape {}
+  class SubGraphRecordShape extends GraphRecordShape {}
+  for (const [id, cls] of [
+    [GraphRecord, GraphRecordShape],
+    [SubGraphRecord, SubGraphRecordShape],
+  ]) {
+    const nodeShape = getNodeShape({ id });
+    addNodeShapeToShapeClass(nodeShape, cls);
+    Object.defineProperty(cls, 'shape', { value: nodeShape, configurable: true });
+  }
+
+  const G = 'https://linked.cm/pkg/qa-test/graph/ontology';
+  const KINDS = ['graph_create', 'graph_replace', 'graph_patch', 'graph_drop'];
+  const gq = (kind = 'graph_replace', recordClass = Cls('SubGraphRecord'), graph = G) => ({
+    kind,
+    graph,
+    recordClass,
+    ...(kind === 'graph_patch' ? { patch: { insert: { mediaType: 'text/turtle', text: '' } } } : {}),
+    ...(kind === 'graph_create' || kind === 'graph_replace' ? { content: { mediaType: 'text/turtle', text: '' } } : {}),
+  });
+  const graphCheck = (ctx, ir, operation = 'graph', mode = 'enforce') =>
+    runWithCallContext(ctx, () => checkQueryAccess({ operation, query: { sent: true }, ir, mode, endpoint: 'graphQuery' }));
+
+  beforeEach(() => {
+    LinkedStorage.unsetDatasetForShape(GraphRecordShape);
+    LinkedStorage.unsetDatasetForShape(SubGraphRecordShape);
+  });
+
+  for (const mode of ['warn', 'enforce']) {
+    it(`are refused without a graph rule, session or not (${mode})`, async () => {
+      quiet();
+      for (const kind of KINDS) {
+        assert.equal(await statusOf(graphCheck(signedIn, gq(kind), 'graph', mode)), 403);
+        assert.equal(await statusOf(graphCheck(http(), gq(kind), 'graph', mode)), 403);
+      }
+    });
+  }
+
+  it("are refused by a graph rule 'none'", async () => {
+    quiet();
+    withAccess(appStore, { graph: 'none' });
+    assert.equal(await statusOf(graphCheck(signedIn, gq())), 403);
+  });
+
+  it('are not decided by read or write rules', async () => {
+    quiet();
+    withAccess(appStore, { read: () => true, write: () => true });
+    assert.equal(await statusOf(graphCheck(signedIn, gq())), 403);
+    withAccess(appStore, { read: 'session', write: 'session' });
+    assert.equal(await statusOf(graphCheck(signedIn, gq())), 403);
+  });
+
+  it('are allowed by a graph rule that admits them, for every kind', async () => {
+    withAccess(appStore, { graph: () => true });
+    for (const kind of KINDS) {
+      assert.equal(await statusOf(graphCheck(signedIn, gq(kind))), 'ok');
+    }
+  });
+
+  it('give the rule the caller, the graph, the kind and the record class', async () => {
+    const seen = [];
+    withAccess(appStore, { graph: (ctx) => (seen.push(ctx), true) });
+    const ir = gq('graph_drop');
+    assert.equal(await statusOf(graphCheck(signedIn, ir)), 'ok');
+    assert.equal(seen.length, 1);
+    const ctx = seen[0];
+    assert.equal(ctx.operation, 'graph');
+    assert.equal(ctx.kind, 'graph_drop');
+    assert.equal(ctx.graph, G);
+    assert.equal(ctx.recordClass, Cls('SubGraphRecord'));
+    assert.equal(ctx.store, appStore);
+    assert.deepEqual(ctx.linkedAuth, { userAccount: { id: 'http://ex/me' } });
+    assert.equal(ctx.request.linkedAuth, ctx.linkedAuth);
+    assert.deepEqual(ctx.query, { sent: true });
+    assert.equal(ctx.ir, ir);
+  });
+
+  it('let the rule decide by record class', async () => {
+    quiet();
+    withAccess(appStore, { graph: (ctx) => ctx.recordClass === Cls('SubGraphRecord') });
+    assert.equal(await statusOf(graphCheck(signedIn, gq('graph_replace', Cls('SubGraphRecord')))), 'ok');
+    assert.equal(await statusOf(graphCheck(signedIn, gq('graph_replace', Cls('GraphRecord')))), 403);
+  });
+
+  it('are refused when the rule refuses: 403, or 401 without a session', async () => {
+    quiet();
+    withAccess(appStore, { graph: async () => false });
+    assert.equal(await statusOf(graphCheck(signedIn, gq())), 403);
+    assert.equal(await statusOf(graphCheck(http(), gq())), 401);
+  });
+
+  it('pass a ServerCallError the rule throws, and refuse on any other error', async () => {
+    quiet();
+    withAccess(appStore, {
+      graph: () => {
+        throw Object.assign(new Error('busy'), { name: 'ServerCallError', status: 409 });
+      },
+    });
+    assert.equal(await statusOf(graphCheck(signedIn, gq())), 409);
+    withAccess(appStore, {
+      graph: () => {
+        throw new Error('boom');
+      },
+    });
+    assert.equal(await statusOf(graphCheck(signedIn, gq())), 403);
+  });
+
+  it('ask the store the record shape routes to, through a pin of its super shape', async () => {
+    quiet();
+    const graphStore = { name: 'graphs' };
+    const asked = [];
+    pin(graphStore, GraphRecordShape);
+    withAccess(appStore, { graph: () => (asked.push('app'), true) });
+    withAccess(graphStore, { graph: (ctx) => (asked.push(ctx.store === graphStore ? 'graphs' : '?'), false) });
+    assert.equal(await statusOf(graphCheck(signedIn, gq('graph_replace', Cls('SubGraphRecord')))), 403);
+    assert.deepEqual(asked, ['graphs']);
+  });
+
+  it('ask the default store for a record class no shape targets', async () => {
+    const asked = [];
+    pin({ name: 'graphs' }, GraphRecordShape);
+    withAccess(appStore, { graph: (ctx) => (asked.push(ctx.store), true) });
+    assert.equal(await statusOf(graphCheck(signedIn, gq('graph_replace', 'http://ex/class/Unknown'))), 'ok');
+    assert.deepEqual(asked, [appStore]);
+  });
+
+  it('are refused (400) on any other endpoint', async () => {
+    quiet();
+    withAccess(appStore, { read: () => true, write: () => true, graph: () => true });
+    for (const operation of ['select', 'ask', 'create', 'update', 'delete']) {
+      for (const kind of KINDS) {
+        assert.equal(await statusOf(graphCheck(signedIn, gq(kind), operation)), 400, `${kind} on ${operation}`);
+      }
+    }
+  });
+
+  it('refuse (400) a shape query on the graph endpoint', async () => {
+    quiet();
+    withAccess(appStore, { read: () => true, write: () => true, graph: () => true });
+    assert.equal(await statusOf(graphCheck(signedIn, scan(Thing))), 400);
+    assert.equal(await statusOf(graphCheck(signedIn, deleteAccount)), 400);
+  });
+
+  it('refuse (400) a graph query without a graph or a record class, or that could not be read', async () => {
+    quiet();
+    withAccess(appStore, { graph: () => true });
+    assert.equal(await statusOf(graphCheck(signedIn, { kind: 'graph_drop', recordClass: Cls('GraphRecord') })), 400);
+    assert.equal(await statusOf(graphCheck(signedIn, { kind: 'graph_drop', graph: G })), 400);
+    assert.equal(await statusOf(graphCheck(signedIn, { kind: 'graph_drop', graph: '', recordClass: Cls('GraphRecord') })), 400);
+    assert.equal(await statusOf(graphCheck(signedIn, { kind: 'graph_drop', graph: G, recordClass: 7 })), 400);
+    assert.equal(await statusOf(graphCheck(signedIn, undefined)), 400);
+    assert.equal(await statusOf(graphCheck(http(), undefined)), 401);
+  });
+
+  it('are not checked outside a request', async () => {
+    assert.equal(
+      await statusOf(runAsSystem(() => checkQueryAccess({ operation: 'graph', query: {}, ir: gq(), mode: 'enforce' }))),
+      'ok'
+    );
+  });
+
+  it("withAccess takes a graph rule 'none' or a function, never 'session'", () => {
+    const store = {};
+    const rule = () => true;
+    withAccess(store, { graph: rule });
+    assert.equal(getStoreAccess(store).graph, rule);
+    withAccess(store, { graph: 'none' });
+    assert.equal(getStoreAccess(store).graph, 'none');
+    assert.throws(() => withAccess(store, { graph: 'session' }), TypeError);
+    assert.throws(() => withAccess(store, { graph: true }), TypeError);
+  });
+});

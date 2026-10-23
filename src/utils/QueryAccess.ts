@@ -42,6 +42,14 @@
  *   satisfy each of their stores' rules too. When the root and those sub-shapes
  *   route to more than one store, it is refused (409,
  *   `bulk-mutation-spans-stores: …`) rather than applied to one store only.
+ * - Graph queries (operation `graph`: `graph_create`, `graph_replace`,
+ *   `graph_patch`, `graph_drop`) change a whole named graph and its registry
+ *   record. They have no shape: the target is the graph IRI. The query maps to
+ *   the store `LinkedStorage.graphQuery` routes it to (the store of the shape
+ *   whose target class is the query's `recordClass`, else the default store),
+ *   and that store's `graph` rule decides with the caller, the graph, the kind
+ *   and the record class. A store without a `graph` rule refuses them (403):
+ *   unlike reads and writes there is no `'session'` default.
  * - Raw SPARQL (`/api/select-raw`) cannot be analysed, so store rules do not
  *   apply to it. The server's `rawQueries` setting decides instead: `'session'`
  *   (the default) runs it for any signed-in session, `'off'` refuses it.
@@ -53,9 +61,11 @@ import {
   catalogOf,
   getAllNodeShapes,
   getShapeClass,
+  getShapesForTargetClass,
   getSuperShapes,
   getRegistryVersion,
   getTargetClassId,
+  outsideShapeCatalog,
   withShapeCatalog,
 } from '@_linked/core/utils/ShapeClass';
 import { subClassesOf } from '@_linked/core/ontology/classHierarchy';
@@ -63,10 +73,14 @@ import { LinkedStorage } from '@_linked/core/utils/LinkedStorage';
 import { getCallContext } from './CallContext.js';
 import { ServerCallError } from './ServerCallError.js';
 
-export type QueryOperation = 'select' | 'ask' | 'create' | 'update' | 'delete';
+export type QueryOperation = 'select' | 'ask' | 'create' | 'update' | 'delete' | 'graph';
+
+/** The kinds of a graph query (operation `graph`), as core's `GraphQuery.kind`. */
+export type GraphQueryKind = 'graph_create' | 'graph_replace' | 'graph_patch' | 'graph_drop';
 
 export interface QueryAccessContext {
-  operation: QueryOperation;
+  /** Graph queries are decided by a store's `graph` rule, never by `read` or `write`. */
+  operation: Exclude<QueryOperation, 'graph'>;
   /** The query as the client sent it (DSL-JSON or a rehydrated builder). */
   query: unknown;
   /** The lowered IR of the query. */
@@ -90,11 +104,41 @@ export type AccessFunction = (ctx: QueryAccessContext) => boolean | Promise<bool
 
 export type AccessRule = 'none' | 'session' | AccessFunction;
 
+/** What a store's `graph` rule decides with. */
+export interface GraphAccessContext {
+  operation: 'graph';
+  kind: GraphQueryKind;
+  /** The graph IRI the query writes or drops. */
+  graph: string;
+  /** The class IRI of the graph's registry record (`OntologyGraph`, `DraftGraph`, …). */
+  recordClass: string;
+  /** The query as the client sent it. */
+  query: unknown;
+  /** The graph query the server parsed from it (core's `GraphQuery`). */
+  ir: unknown;
+  /** The store whose rule is being asked. */
+  store: unknown;
+  /** The caller: the request and its `linkedAuth`, as for read and write rules. */
+  request: any;
+  linkedAuth: any;
+}
+
+/** `true` admits the graph query, `false` refuses it (403, or 401 without a session). */
+export type GraphAccessFunction = (ctx: GraphAccessContext) => boolean | Promise<boolean>;
+
+/**
+ * Who may run graph queries on a store: `'none'` or a function that decides.
+ * There is no `'session'`: a signed-in session alone never writes a graph.
+ */
+export type GraphAccessRule = 'none' | GraphAccessFunction;
+
 export interface StoreAccess {
   /** `select` and `ask`. Default `'session'`. */
   read?: AccessRule;
   /** `create`, `update` and `delete`. Default `'session'`. */
   write?: AccessRule;
+  /** Graph queries (`graph_create`, `graph_replace`, `graph_patch`, `graph_drop`). Default: refused. */
+  graph?: GraphAccessRule;
 }
 
 /**
@@ -144,7 +188,15 @@ export function withAccess<T extends object>(store: T, access: StoreAccess): T {
   }
   assertRule(access.read, 'read');
   assertRule(access.write, 'write');
-  registry().set(store, { read: access.read, write: access.write });
+  if (access.graph !== undefined && access.graph !== 'none' && typeof access.graph !== 'function') {
+    throw new TypeError(`withAccess: graph must be 'none' or a function, got ${JSON.stringify(access.graph)}`);
+  }
+  registry().set(
+    store,
+    access.graph === undefined
+      ? { read: access.read, write: access.write }
+      : { read: access.read, write: access.write, graph: access.graph }
+  );
   return store;
 }
 
@@ -319,6 +371,7 @@ const KINDS_BY_OPERATION: Record<QueryOperation, ReadonlySet<string>> = {
   create: new Set(['create']),
   update: new Set(['update', 'upsert', 'update_where']),
   delete: new Set(['delete', 'delete_all', 'delete_where']),
+  graph: new Set<GraphQueryKind>(['graph_create', 'graph_replace', 'graph_patch', 'graph_drop']),
 };
 
 const MUTATIONS: ReadonlySet<QueryOperation> = new Set(['create', 'update', 'delete']);
@@ -335,6 +388,25 @@ function storeForShape(shapeId: string): unknown {
     shapeClass = undefined;
   }
   return LinkedStorage.getDatasetForShapeClass(shapeClass);
+}
+
+/**
+ * The store `LinkedStorage.graphQuery` routes a graph query to: the store of
+ * the first shape whose target class is `recordClass` (a pin of a super shape
+ * covers it), else the default store. Resolved outside any shape catalog, as
+ * `LinkedStorage.graphQuery` resolves it.
+ */
+export function storeForGraphQuery(recordClass: string): unknown {
+  return outsideShapeCatalog(() => {
+    let shapeClass: Function | undefined;
+    try {
+      const recordShape = getShapesForTargetClass(recordClass)[0];
+      shapeClass = recordShape ? (getShapeClass(recordShape.id as any) as any) : undefined;
+    } catch {
+      shapeClass = undefined;
+    }
+    return shapeClass ? LinkedStorage.getDatasetForShapeClass(shapeClass) : LinkedStorage.getDefaultDataset();
+  });
 }
 
 function superShapeIds(shapeId: string): string[] {
@@ -426,6 +498,8 @@ function refuse(status: number, message: string, log?: string): never {
  *    needs a session (401 without one, in every mode), and nothing below
  *    applies;
  * 3. a query that could not be analysed → 400;
+ *    a graph query: the `graph` rule of the store it routes to (a store without
+ *    one → 403), and nothing below applies;
  * 4. the rule of every store the query maps to (see the module comment);
  * 5. a bulk mutation whose root and sub-shapes route to more than one store
  *    → 409 (`bulk-mutation-spans-stores: …`);
@@ -469,6 +543,11 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
   if (o.ir === undefined) {
     if (!hasSession) refuse(401, 'Authentication required');
     refuse(400, 'Query could not be analysed');
+  }
+
+  if (o.operation === 'graph') {
+    await checkGraphAccess(o, request, linkedAuth, hasSession, endpoint);
+    return;
   }
 
   const targets = collectQueryTargets(o.ir);
@@ -561,5 +640,56 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
       'Query not permitted: the server assigns the ids of new nodes',
       `[linked] refused ${endpoint}: it chooses the id of a new node`
     );
+  }
+}
+
+/** Step 3 of `checkQueryAccess` for a graph query (its kind already matches the endpoint). */
+async function checkGraphAccess(
+  o: CheckQueryAccessOptions,
+  request: any,
+  linkedAuth: any,
+  hasSession: boolean,
+  endpoint: string
+): Promise<void> {
+  const q = o.ir as { kind: GraphQueryKind; graph?: unknown; recordClass?: unknown };
+  if (typeof q.graph !== 'string' || !q.graph || typeof q.recordClass !== 'string' || !q.recordClass) {
+    if (!hasSession) refuse(401, 'Authentication required');
+    refuse(400, 'Query could not be analysed');
+  }
+  const graph = q.graph;
+  const recordClass = q.recordClass;
+  const store = storeForGraphQuery(recordClass);
+  const rule = getStoreAccess(store)?.graph;
+  if (rule === undefined || rule === 'none') {
+    refuse(
+      403,
+      'Query not permitted',
+      `[linked] refused ${endpoint}: the store of ${recordClass} does not allow graph queries (${q.kind} on ${graph})`
+    );
+  }
+  let allowed: boolean;
+  try {
+    allowed = await rule({
+      operation: 'graph',
+      kind: q.kind,
+      graph,
+      recordClass,
+      query: o.query,
+      ir: o.ir,
+      store,
+      request,
+      linkedAuth,
+    });
+  } catch (err) {
+    if (ServerCallError.is(err)) throw err;
+    refuse(
+      403,
+      'Query not permitted',
+      `[linked] refused ${endpoint}: the graph rule for ${recordClass} failed: ${(err as any)?.message ?? err}`
+    );
+  }
+  if (allowed !== true) {
+    if (!hasSession) refuse(401, 'Authentication required');
+    refuse(403, 'Query not permitted', `[linked] refused ${endpoint}: the graph rule refused ${q.kind} on ${graph}`);
   }
 }
