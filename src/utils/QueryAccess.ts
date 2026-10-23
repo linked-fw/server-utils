@@ -65,7 +65,6 @@ import {
   getSuperShapes,
   getRegistryVersion,
   getTargetClassId,
-  outsideShapeCatalog,
   withShapeCatalog,
 } from '@_linked/core/utils/ShapeClass';
 import { subClassesOf } from '@_linked/core/ontology/classHierarchy';
@@ -184,7 +183,7 @@ export function withAccess<T extends object>(store: T, access: StoreAccess): T {
     throw new TypeError('withAccess: expected a store');
   }
   if (!access || typeof access !== 'object') {
-    throw new TypeError('withAccess: expected {read, write}');
+    throw new TypeError('withAccess: expected {read, write, graph}');
   }
   assertRule(access.read, 'read');
   assertRule(access.write, 'write');
@@ -393,20 +392,19 @@ function storeForShape(shapeId: string): unknown {
 /**
  * The store `LinkedStorage.graphQuery` routes a graph query to: the store of
  * the first shape whose target class is `recordClass` (a pin of a super shape
- * covers it), else the default store. Resolved outside any shape catalog, as
- * `LinkedStorage.graphQuery` resolves it.
+ * covers it), else the default store. Resolved in the active shape catalog,
+ * as `LinkedStorage.graphQuery` resolves it, so the server must check and run a
+ * graph query in the same scope (outside any catalog, as it checks every query).
  */
 export function storeForGraphQuery(recordClass: string): unknown {
-  return outsideShapeCatalog(() => {
-    let shapeClass: Function | undefined;
-    try {
-      const recordShape = getShapesForTargetClass(recordClass)[0];
-      shapeClass = recordShape ? (getShapeClass(recordShape.id as any) as any) : undefined;
-    } catch {
-      shapeClass = undefined;
-    }
-    return shapeClass ? LinkedStorage.getDatasetForShapeClass(shapeClass) : LinkedStorage.getDefaultDataset();
-  });
+  let shapeClass: Function | undefined;
+  try {
+    const recordShape = getShapesForTargetClass(recordClass)[0];
+    shapeClass = recordShape ? (getShapeClass(recordShape.id as any) as any) : undefined;
+  } catch {
+    shapeClass = undefined;
+  }
+  return shapeClass ? LinkedStorage.getDatasetForShapeClass(shapeClass) : LinkedStorage.getDefaultDataset();
 }
 
 function superShapeIds(shapeId: string): string[] {
