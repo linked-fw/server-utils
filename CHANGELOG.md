@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.16.1
+
+### Patch Changes
+
+- [#110](https://github.com/linked-fw/server-utils/pull/110) [`c3969c9`](https://github.com/linked-fw/server-utils/commit/c3969c9edd671e4efa9a1049b060bfc8cadcb589) Thanks [@flyon](https://github.com/flyon)! - Ships `lib/esm/data/shapes.ttl`; core range raised to `^2.39.1`.
+
 ## 1.16.0
 
 ### Minor Changes
