@@ -1,5 +1,11 @@
 # @\_linked/server-utils
 
+## 1.16.2
+
+### Patch Changes
+
+- [#112](https://github.com/linked-fw/server-utils/pull/112) [`e5785d3`](https://github.com/linked-fw/server-utils/commit/e5785d37d5c30800f0e434f485469935cbc78e6d) Thanks [@flyon](https://github.com/flyon)! - License: MIT (data under its original license)
+
 ## 1.16.1
 
 ### Patch Changes
