@@ -26,7 +26,9 @@
  * keep working. An app can use `declareInternal` on a class it imports to block
  * a method the package itself has not annotated. Unlike a callable declaration,
  * an internal one is inherited: an override on a subclass stays internal, and it
- * wins over a callable declaration of the same method.
+ * wins over a callable declaration of the same method. That conflict logs a
+ * warning unless the internal declaration says it overrides the callable one on
+ * purpose (`{overridesCallable: true}`).
  *
  * This module has no imports on purpose: it is safe to load on the client too.
  */
@@ -39,6 +41,15 @@ export type CallableLevel =
 
 const CALLABLE_KEY = Symbol.for('@_linked/server-utils:callable');
 const INTERNAL_KEY = Symbol.for('@_linked/server-utils:internal');
+const OVERRIDES_KEY = Symbol.for('@_linked/server-utils:internal-overrides');
+
+export interface InternalOptions {
+  /**
+   * The method is (or may be) declared callable on this class or a super class,
+   * and this declaration closes it on purpose: no conflict warning is logged.
+   */
+  overridesCallable?: boolean;
+}
 
 const LEVELS: ReadonlySet<string> = new Set(['public', 'signed-in', 'user']);
 
@@ -74,12 +85,21 @@ function ownMap(cls: Function, create: boolean): Map<string, CallableLevel> | un
 }
 
 function ownInternalSet(cls: Function, create: boolean): Set<string> | undefined {
-  if (Object.prototype.hasOwnProperty.call(cls, INTERNAL_KEY)) {
-    return (cls as any)[INTERNAL_KEY];
+  return ownSet(cls, INTERNAL_KEY, create);
+}
+
+/** The methods whose internal declaration on `cls` overrides a callable one on purpose. */
+function ownOverridesSet(cls: Function, create: boolean): Set<string> | undefined {
+  return ownSet(cls, OVERRIDES_KEY, create);
+}
+
+function ownSet(cls: Function, key: symbol, create: boolean): Set<string> | undefined {
+  if (Object.prototype.hasOwnProperty.call(cls, key)) {
+    return (cls as any)[key];
   }
   if (!create) return undefined;
   const set = new Set<string>();
-  Object.defineProperty(cls, INTERNAL_KEY, {
+  Object.defineProperty(cls, key, {
     value: set,
     enumerable: false,
     configurable: true,
@@ -107,17 +127,27 @@ function warnConflict(cls: Function, method: string) {
   warnedConflicts.add(key);
   console.warn(
     `[linked] ${cls.name || 'anonymous class'}.${method} is declared both callable and internal; ` +
-      `internal wins and the method is not dispatched over HTTP`
+      `internal wins and the method is not dispatched over HTTP ` +
+      `(declare it internal with {overridesCallable: true} when that is intended)`
   );
 }
 
-/** Warn once when declaring `method` callable on `cls` meets an internal declaration. */
+/**
+ * Warn once when declaring `method` callable on `cls` meets an internal
+ * declaration, unless that is `cls`'s own declaration overriding it on purpose.
+ * An intended override on a super class does not cover a subclass that declares
+ * the method callable again.
+ */
 function checkCallableConflict(cls: Function, method: string) {
-  if (isDeclaredInternal(cls, method)) warnConflict(cls, method);
+  const declaring = classChain(cls).find((c) => ownInternalSet(c, false)?.has(method));
+  if (!declaring) return;
+  if (declaring === cls && ownOverridesSet(cls, false)?.has(method)) return;
+  warnConflict(cls, method);
 }
 
 /** Warn once when declaring `method` internal on `cls` meets a callable declaration. */
-function checkInternalConflict(cls: Function, method: string) {
+function checkInternalConflict(cls: Function, method: string, options?: InternalOptions) {
+  if (options?.overridesCallable) return;
   if (classChain(cls).some((c) => ownMap(c, false)?.has(method))) {
     warnConflict(cls, method);
   }
@@ -248,7 +278,8 @@ export function getOwnCallableLevel(
 /**
  * Method decorator (legacy `experimentalDecorators` form) declaring a provider
  * method internal: never dispatched over HTTP, in any exposure mode. Calls from
- * other backend code still work.
+ * other backend code still work. A subclass closing a method its base class
+ * declares callable passes `{overridesCallable: true}`.
  *
  * ```ts
  * class MyProvider extends BackendProvider {
@@ -257,7 +288,7 @@ export function getOwnCallableLevel(
  * }
  * ```
  */
-export function internal(): MethodDecorator {
+export function internal(options?: InternalOptions): MethodDecorator {
   return function (target: any, propertyKey: string | symbol, descriptor?: any) {
     if (
       propertyKey &&
@@ -280,8 +311,7 @@ export function internal(): MethodDecorator {
     if (typeof cls !== 'function' || cls.prototype !== target) {
       throw new TypeError('internal: can only decorate class methods');
     }
-    ownInternalSet(cls, true).add(propertyKey);
-    checkInternalConflict(cls, propertyKey);
+    declareOwnInternal(cls, propertyKey, options);
     return descriptor;
   } as MethodDecorator;
 }
@@ -290,16 +320,23 @@ export function internal(): MethodDecorator {
  * Declare methods internal without decorators: in plain JS, or from another
  * package on a class you import, to block methods its package has not
  * annotated. The declaration also covers overrides on subclasses, and wins over
- * a callable declaration of the same method (with a warning).
+ * a callable declaration of the same method. That logs a warning unless
+ * `overridesCallable` says the override is intended.
  *
  * ```js
  * declareInternal(SomeImportedProvider, ['dangerousMethod']);
+ * // the package declares signinWithCode public; this app closes it on purpose
+ * declareInternal(SomeImportedProvider, ['signinWithCode'], {overridesCallable: true});
  * ```
  *
  * Throws a `TypeError` for a name the class (or a super class) has no instance
  * method for, and for a static method.
  */
-export function declareInternal(cls: Function, methods: string[]): void {
+export function declareInternal(
+  cls: Function,
+  methods: string[],
+  options?: InternalOptions
+): void {
   if (typeof cls !== 'function') {
     throw new TypeError('declareInternal: expected a class');
   }
@@ -312,11 +349,13 @@ export function declareInternal(cls: Function, methods: string[]): void {
     }
     assertInstanceMethod(cls, method, 'declareInternal');
   }
-  const set = ownInternalSet(cls, true);
-  for (const method of methods) {
-    set.add(method);
-    checkInternalConflict(cls, method);
-  }
+  for (const method of methods) declareOwnInternal(cls, method, options);
+}
+
+function declareOwnInternal(cls: Function, method: string, options?: InternalOptions) {
+  ownInternalSet(cls, true).add(method);
+  if (options?.overridesCallable) ownOverridesSet(cls, true).add(method);
+  checkInternalConflict(cls, method, options);
 }
 
 /**
