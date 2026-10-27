@@ -77,9 +77,9 @@ export const Html = React.memo<HtmlProps>(
           {matchedRouteKey && (
             <script
               dangerouslySetInnerHTML={{
-                __html: `window.__PRELOAD_ROUTES__ = ${JSON.stringify([
-                  matchedRouteKey,
-                ])};`,
+                __html: `window.__PRELOAD_ROUTES__ = ${escapeJsonForScript(
+                  JSON.stringify([matchedRouteKey])
+                )};`,
               }}
             />
           )}
@@ -208,7 +208,9 @@ export const Html = React.memo<HtmlProps>(
           <div id="root">{children}</div>
           <script
             dangerouslySetInnerHTML={{
-              __html: `assetManifest = ${JSON.stringify(assets)};`,
+              __html: `assetManifest = ${escapeJsonForScript(
+                JSON.stringify(assets)
+              )};`,
             }}
           />
         </body>

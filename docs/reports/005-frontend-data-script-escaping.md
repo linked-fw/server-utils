@@ -49,11 +49,31 @@ children, so there is no hydration difference.
 
 ### Deviations
 
-- The two inline executable scripts (`window.__PRELOAD_ROUTES__` and `assetManifest`) are left as
-  they were: their JSON comes from the route table and the build manifest, not from request data.
+- None after the review addendum below (first landing left `__PRELOAD_ROUTES__` and
+  `assetManifest` unescaped; the addendum escapes them too).
+
+### Review addendum
+
+An independent review found nothing exploitable and asked for three changes, now landed:
+
+- `Html` also routes `window.__PRELOAD_ROUTES__` and `assetManifest` through
+  `escapeJsonForScript`, so every JSON value it writes into a `<script>` is escaped (the dev-only
+  inline `<style>` is CSS, not JSON, and stays as it was).
+- `test/html-render.test.mjs` (new): server-renders `Html` with a hostile `requestObject`,
+  `requestLD`, asset manifest and route key through `AppContext`; asserts no raw
+  `</script><b>x</b>` in the output, and that `#request-json`, `#request-ld` and the manifest
+  `JSON.parse` back to the input. With the `requestObject` escape removed from the built `Html`
+  the run is `# pass 2`, `# fail 2`; with it, `# pass 4`, `# fail 0`.
+- Backlog 005 records two notes: `requestLD`'s format (JSON-only escaping) and the `cachePaths`
+  HTML cache in `@_linked/server`, which stores per-request `request-json`.
+
+Verification: `npx linked build` `✔ Build successful with warnings`; `npm run test:calls`
+`# tests 119`, `# pass 119`, `# fail 0`; CN `tests/e2e/signin.spec.ts` (dev sign-in, `CN_TEST_PORT=4162`)
+`5 passed (36.1s)`.
 
 ### Follow-ups
 
+- Backlog 005 (request-ld format; request data in `cachePaths` pages).
 - webid.email can drop its `encodePageData` escaping after the release (webid.email backlog 005,
   trimmed to that).
 
