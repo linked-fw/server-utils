@@ -4,6 +4,7 @@ import { asset } from '@_linked/core/utils/LinkedFileStorage';
 import {
   crossOriginProps,
   cssReadinessScript,
+  escapeJsonForScript,
   getPageOrigin,
 } from '../utils/HtmlAssets.js';
 
@@ -188,12 +189,14 @@ export const Html = React.memo<HtmlProps>(
           <script
             id="request-ld"
             type="application/ld+json"
-            dangerouslySetInnerHTML={{ __html: requestLD }}
+            dangerouslySetInnerHTML={{ __html: escapeJsonForScript(requestLD) }}
           />
           <script
             id="request-json"
             type="application/json"
-            dangerouslySetInnerHTML={{ __html: requestObject }}
+            dangerouslySetInnerHTML={{
+              __html: escapeJsonForScript(requestObject),
+            }}
           />
         </head>
         <body style={{ margin: 0, padding: 0, ...style }}>

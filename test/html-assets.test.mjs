@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import {
   crossOriginProps,
   cssReadinessScript,
+  escapeJsonForScript,
   getPageOrigin,
   isCrossOrigin,
 } from '../lib/esm/utils/HtmlAssets.js';
@@ -210,5 +211,34 @@ describe('Html asset links', { skip: !renderToStaticMarkup }, () => {
     const main = stylesheets.find((tag) => tag.includes('/main.css'));
     assert.ok(route.includes('crossorigin="anonymous"'), route);
     assert.ok(!main.includes('crossorigin'), main);
+  });
+});
+
+describe('escapeJsonForScript', () => {
+  const data = {
+    name: '</script><img src=x onerror=alert(1)>',
+    comment: '<!-- <script> & more -->',
+    separators: 'a\u2028b\u2029c',
+    nested: { list: ['<', '>', '&', 'plain'] },
+  };
+
+  it('leaves no character that can end or open markup inside the script', () => {
+    const escaped = escapeJsonForScript(JSON.stringify(data));
+    assert.doesNotMatch(escaped, /[<>&\u2028\u2029]/);
+    assert.ok(escaped.includes('\\u003c/script\\u003e'));
+  });
+
+  it('parses back to the same value', () => {
+    assert.deepEqual(JSON.parse(escapeJsonForScript(JSON.stringify(data))), data);
+  });
+
+  it('leaves JSON without those characters unchanged', () => {
+    const json = JSON.stringify({ a: 1, b: 'text "quoted"', c: [true, null] });
+    assert.equal(escapeJsonForScript(json), json);
+  });
+
+  it('writes nothing for missing data', () => {
+    assert.equal(escapeJsonForScript(undefined), '');
+    assert.equal(escapeJsonForScript(''), '');
   });
 });
