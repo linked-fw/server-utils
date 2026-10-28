@@ -12,7 +12,6 @@
   },
   "version": "1.16.2",
   "packageManager": "npm@12.2.0",
-  "linkedPackage": true,
   "type": "module",
   "main": "lib/esm/index.js",
   "module": "lib/esm/index.js",
@@ -39,6 +38,7 @@
     }
   },
   "linked": {
+    "kind": "library",
     "serverOnly": [
       "./utils/CallContext",
       "./utils/QueryAccess"
@@ -74,6 +74,7 @@
   },
   "devDependencies": {
     "@_linked/cli": "^1.54.0",
+    "@babel/core": "^8.0.0",
     "@babel/preset-env": "^8.0.0",
     "@babel/preset-typescript": "^8.0.0",
     "@changesets/changelog-github": "^1.0.0",
@@ -81,6 +82,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
     "babel-jest": "^30.2.0",
+    "babel-preset-jest": "^30.2.0",
     "jest": "^30.2.0",
     "tsconfig-to-dual-package": "^1.2.0",
     "typescript": "^5.7.3",

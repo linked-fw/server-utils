@@ -4,6 +4,7 @@ import { asset } from '@_linked/core/utils/LinkedFileStorage';
 import {
   crossOriginProps,
   cssReadinessScript,
+  escapeJsonForScript,
   getPageOrigin,
 } from '../utils/HtmlAssets.js';
 
@@ -76,9 +77,9 @@ export const Html = React.memo<HtmlProps>(
           {matchedRouteKey && (
             <script
               dangerouslySetInnerHTML={{
-                __html: `window.__PRELOAD_ROUTES__ = ${JSON.stringify([
-                  matchedRouteKey,
-                ])};`,
+                __html: `window.__PRELOAD_ROUTES__ = ${escapeJsonForScript(
+                  JSON.stringify([matchedRouteKey])
+                )};`,
               }}
             />
           )}
@@ -188,12 +189,14 @@ export const Html = React.memo<HtmlProps>(
           <script
             id="request-ld"
             type="application/ld+json"
-            dangerouslySetInnerHTML={{ __html: requestLD }}
+            dangerouslySetInnerHTML={{ __html: escapeJsonForScript(requestLD) }}
           />
           <script
             id="request-json"
             type="application/json"
-            dangerouslySetInnerHTML={{ __html: requestObject }}
+            dangerouslySetInnerHTML={{
+              __html: escapeJsonForScript(requestObject),
+            }}
           />
         </head>
         <body style={{ margin: 0, padding: 0, ...style }}>
@@ -205,7 +208,9 @@ export const Html = React.memo<HtmlProps>(
           <div id="root">{children}</div>
           <script
             dangerouslySetInnerHTML={{
-              __html: `assetManifest = ${JSON.stringify(assets)};`,
+              __html: `assetManifest = ${escapeJsonForScript(
+                JSON.stringify(assets)
+              )};`,
             }}
           />
         </body>

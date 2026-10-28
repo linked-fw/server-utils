@@ -145,3 +145,23 @@ export function cssReadinessScript(routeStylesheets: string[] = []): string {
                 })();
               `;
 }
+
+const SCRIPT_UNSAFE = /[<>&\u2028\u2029]/g;
+
+/**
+ * Makes JSON text safe to write as the content of a `<script>` element.
+ *
+ * The HTML parser ends a script at the first `</script`, whatever JSON quoting
+ * surrounds it, so `<`, `>` and `&` are written as `\u003c`, `\u003e` and
+ * `\u0026` (U+2028 and U+2029 too, which older JS engines read as line ends).
+ * These are valid JSON string escapes, so `JSON.parse` returns the same value.
+ * Outside a string these characters cannot occur in JSON text, so only string
+ * contents change.
+ */
+export function escapeJsonForScript(json?: string): string {
+  if (!json) return '';
+  return json.replace(
+    SCRIPT_UNSAFE,
+    (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')
+  );
+}

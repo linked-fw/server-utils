@@ -180,6 +180,52 @@ describe('internal', () => {
     expect(warn.mock.calls[0][0]).toMatch(/Declared\.a .*internal wins/);
   });
 
+  it('does not warn when the internal declaration overrides the callable one on purpose', () => {
+    class Declared {
+      a() {}
+      b() {}
+    }
+    declareCallable(Declared, { a: 'public' });
+    declareInternal(Declared, ['a'], { overridesCallable: true });
+    // declared callable afterwards on the same class: still the intended override
+    declareInternal(Declared, ['b'], { overridesCallable: true });
+    declareCallable(Declared, { b: 'signed-in' });
+    expect(isDeclaredInternal(Declared, 'a')).toBe(true);
+    expect(isDeclaredInternal(Declared, 'b')).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('the decorator takes overridesCallable too', () => {
+    class Base {
+      a() {}
+    }
+    declareCallable(Base, { a: 'public' });
+    class Sub extends Base {
+      a() {}
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(Sub.prototype, 'a');
+    internal({ overridesCallable: true })(Sub.prototype, 'a', descriptor);
+    expect(isDeclaredInternal(Sub, 'a')).toBe(true);
+    expect(isDeclaredInternal(Base, 'a')).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+    decorateInternal(Base, 'a');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('an intended override on a base class still warns for a subclass declaring callable', () => {
+    class Base {
+      a() {}
+    }
+    class Sub extends Base {
+      a() {}
+    }
+    declareInternal(Base, ['a'], { overridesCallable: true });
+    declareCallable(Sub, { a: 'public' });
+    expect(isDeclaredInternal(Sub, 'a')).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/Sub\.a .*overridesCallable/);
+  });
+
   it('warns when a subclass declares callable what its base declared internal', () => {
     class Base {
       a() {}
