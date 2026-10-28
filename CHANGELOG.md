@@ -1,5 +1,21 @@
 # @\_linked/server-utils
 
+## 1.17.0
+
+### Minor Changes
+
+- [#116](https://github.com/linked-fw/server-utils/pull/116) [`6a84b96`](https://github.com/linked-fw/server-utils/commit/6a84b96ecc94ac930bf23f854a093e15d9032ebd) Thanks [@flyon](https://github.com/flyon)! - `declareInternal(cls, methods, {overridesCallable: true})` and `@internal({overridesCallable: true})` close a method that is declared callable on purpose, without the "declared both callable and internal" warning. A conflict without the option still warns, and the warning now names the option.
+
+### Patch Changes
+
+- [#116](https://github.com/linked-fw/server-utils/pull/116) [`a358a69`](https://github.com/linked-fw/server-utils/commit/a358a69b5432571eb3cd09552b4793284c42e3c7) Thanks [@flyon](https://github.com/flyon)! - `Html` escapes `<`, `>`, `&`, U+2028 and U+2029 in the JSON it writes into the `request-json` and `request-ld` scripts (new `escapeJsonForScript` in `utils/HtmlAssets`), so a `</script>` in `frontendData` can no longer end the element. The client reads the same value back.
+
+- [#116](https://github.com/linked-fw/server-utils/pull/116) [`d6296f2`](https://github.com/linked-fw/server-utils/commit/d6296f2ed21791e3e02294aee450adcb5edecf38) Thanks [@flyon](https://github.com/flyon)! - `Html` also escapes the JSON in its inline `window.__PRELOAD_ROUTES__` and `assetManifest` scripts.
+
+- [#116](https://github.com/linked-fw/server-utils/pull/116) [`4afe5ba`](https://github.com/linked-fw/server-utils/commit/4afe5bac9caf7bb500a13c8bb55760b4f32b8133) Thanks [@flyon](https://github.com/flyon)! - The jest unit suites run again: a package-local transform loads this package's Babel 8 core instead of whichever `babel-jest` finds. Test setup only; no runtime change.
+
+- [#116](https://github.com/linked-fw/server-utils/pull/116) [`67d6333`](https://github.com/linked-fw/server-utils/commit/67d63339eec92dd25a0b53581fdd3d8703714798) Thanks [@flyon](https://github.com/flyon)! - `package.json` says what this package is in `"linked": {"kind": "library"}` instead of `"linkedPackage": true`, which the CLI and server no longer read.
+
 ## 1.16.2
 
 ### Patch Changes

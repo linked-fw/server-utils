@@ -10,7 +10,7 @@
     "type": "git",
     "url": "git+https://github.com/linked-fw/server-utils.git"
   },
-  "version": "1.16.2",
+  "version": "1.17.0",
   "packageManager": "npm@12.2.0",
   "type": "module",
   "main": "lib/esm/index.js",
