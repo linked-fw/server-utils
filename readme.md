@@ -20,7 +20,7 @@ To reject instead, pass a `CallConfig` with `rejectOnError: true` as the method:
 import { Server, ServerCallError } from '@_linked/server-utils/utils/Server';
 
 try {
-  const result = await Server.call(this, { method: 'selectQuery', rejectOnError: true }, query);
+  const result = await Server.call(this, { method: 'readQuery', rejectOnError: true }, query);
 } catch (err) {
   if (ServerCallError.is(err)) {
     err.status; // e.g. 500 (provider threw) or 501 (no provider for the call)
