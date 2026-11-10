@@ -4,7 +4,7 @@ summary: >
   The jest unit suites ran 0 tests (all five failed to parse TypeScript): `babel-jest`, hoisted to
   the workspace root, loaded the root's Babel 7 core with this package's Babel 8 presets. A
   package-local jest transform now loads the package's own `@babel/core`; the config finds
-  `@_linked/core` wherever it is installed. 73 tests pass. Patch. Step F of CN master plan 181.
+  `@_linked/core` wherever it is installed. 73 tests pass. Patch. Step F of the host app's master plan.
 ---
 
 # 006 — The jest unit suites parse again
@@ -15,7 +15,7 @@ summary: >
 
 `npm run test:unit` failed every suite before a test ran ("Missing initializer in const
 declaration" on `new Map<string, CallableLevel>()`). Cause: the presets in `devDependencies` are
-Babel 8 (`@babel/preset-env`/`preset-typescript` `^8`), but in the CN workspace `babel-jest` is
+Babel 8 (`@babel/preset-env`/`preset-typescript` `^8`), but in the host app's workspace `babel-jest` is
 deduped to the root, where it loads the root's `@babel/core` 7.29.7. Babel 8's TypeScript plugin
 on a Babel 7 core strips some type syntax and leaves the rest. Standalone, the lockfile hoists
 `@babel/core` 8, which is why the setup looked right. No suite exercises removed code; none was
@@ -51,7 +51,7 @@ $ npx linked build
 ```
 
 Before: `Test Suites: 5 failed, 5 total` / `Tests: 0 total`. The `react-dom` warning predates
-this change. `npm run test:regular` in the CN worktree: PASS, 342 passed / 14 skipped, 297 s (`## Details`).
+this change. `npm run test:regular` in the host app worktree: PASS, 342 passed / 14 skipped, 297 s (`## Details`).
 
 ### Deviations
 
@@ -76,9 +76,9 @@ stubs.
 without `lib/` fails all 16 files with `ERR_MODULE_NOT_FOUND`, which is expected.
 
 
-### CN regular set
+### Host app regular set
 
-`CN_TEST_PORT=4167 npm run test:regular` in the CN worktree (both packages linked from the step's
+`npm run test:regular` in the host app worktree (both packages linked from the step's
 worktrees), under the shared lock, 297 s wall clock:
 
 ```

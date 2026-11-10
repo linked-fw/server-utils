@@ -85,8 +85,7 @@ requiresSession(getOwnCallableLevel(NotesBackendProvider, 'getMyNotes')); // tru
 ## Follow-ups
 
 - `@_linked/server` enforces and reports both spellings with `requiresSession`, and consumers
-  move their declarations to `'signed-in'` (Create Now did so in
-  https://github.com/Semantu/create-now/pull/163). Removing the `'user'`
+  move their declarations to `'signed-in'`. Removing the `'user'`
   alias is a future major; no backlog item.
 
 ## PRs

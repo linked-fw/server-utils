@@ -9,9 +9,9 @@ summary: >
 
 # 004 — Graph queries in `QueryAccess`
 
-CN plan 071 (named graphs) adds `IDataset.graphQuery` (core report 048). The server's generic
-plane will accept graph queries (server step V1) and CN's gateway checks them with a rule (C1).
-This step gives `QueryAccess` the operation and the rule. CN plan 071's U1 section is the
+The host app's named-graphs plan adds `IDataset.graphQuery` (core report 048). The server's generic
+plane will accept graph queries (server step V1) and the host app's gateway checks them with a rule (C1).
+This step gives `QueryAccess` the operation and the rule. The host app plan's U1 section is the
 sub-plan; nothing was redesigned.
 
 ## Tasks (two phases)
@@ -108,7 +108,7 @@ Its five low findings:
 
 - [Backlog 003](../backlog/003-graph-query-store-follows-core-routing.md): the store resolution
   copies core's private resolver; parity test; kinds from core. Revisit with core's graph routing
-  (CN plan 071, K4).
+  (the host app's K4).
 - V1: pass `operation: 'graph'` with `ir` = core's `parseGraphQuery` result (undefined when it
   throws), and run `LinkedStorage.graphQuery` outside any shape catalog, as the check resolves.
-- C1: CN's rule reads the caller from `ctx.linkedAuth` / `ctx.request`.
+- C1: the host app's rule reads the caller from `ctx.linkedAuth` / `ctx.request`.

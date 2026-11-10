@@ -8,7 +8,7 @@ summary: >
 
 # 005 — `frontendData` escaped inside its `<script>`
 
-Create Now plan 181 (backlog batch), with `@_linked/auth` report 022. Landed on the integration
+The host app's backlog batch plan, with `@_linked/auth` report 022. Landed on the integration
 branch `dev`.
 
 ## PR
@@ -41,7 +41,7 @@ children, so there is no hydration difference.
 - `npx linked build`: `✔ Build successful with warnings` (the warnings were there before).
 - `node --test test/html-assets.test.mjs`: `# pass 25`, `# fail 0`.
 - `npm run test:calls`: `# tests 115`, `# pass 115`, `# fail 0`.
-- Running a CN worktree on this build: the home page's `<script id="request-json"
+- Running a host app worktree on this build: the home page's `<script id="request-json"
   type="application/json">{}` still parses, and `npm run test:regular` passes (see auth report 022
   for the quoted run).
 - `npm run test:unit` (jest) is not run: its suites fail to parse TypeScript on `main` too
@@ -68,7 +68,7 @@ An independent review found nothing exploitable and asked for three changes, now
   HTML cache in `@_linked/server`, which stores per-request `request-json`.
 
 Verification: `npx linked build` `✔ Build successful with warnings`; `npm run test:calls`
-`# tests 119`, `# pass 119`, `# fail 0`; CN `tests/e2e/signin.spec.ts` (dev sign-in, `CN_TEST_PORT=4162`)
+`# tests 119`, `# pass 119`, `# fail 0`; the host app's sign-in end-to-end spec (dev sign-in)
 `5 passed (36.1s)`.
 
 ### Follow-ups

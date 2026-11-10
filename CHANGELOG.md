@@ -223,7 +223,7 @@
   The declared range was wide enough that the resolved core depended on whatever the
   consumer — or this repo's own CI, via `package-lock.json` — happened to install. Core
   decides how a shape's IRI is minted, so a stale core made this package emit legacy
-  `data.lincd.org` IRIs instead of the arch-02 `linked.cm` scheme. Which IRIs a published
+  `data.lincd.org` IRIs instead of the `linked.cm` naming scheme. Which IRIs a published
   package produces should not be a function of the installer's dependency tree.
 
   Minor rather than patch: this raises the minimum core a consumer must resolve, so it
@@ -426,7 +426,7 @@
 
 ### Patch Changes
 
-- [#15](https://github.com/linked-cm/server-utils/pull/15) [`66ff3b0`](https://github.com/linked-cm/server-utils/commit/66ff3b0c6284025776527700f8d782ace447aec2) Thanks [@flyon](https://github.com/flyon)! - `Server.removeDefaultHeaders(...names)` / `LincdServerProxy.removeDefaultHeaders(...names)` — remove default headers previously set via `addDefaultHeaders` (used by scoped request contexts like CN's DataRouting to tear down routing headers on unmount).
+- [#15](https://github.com/linked-cm/server-utils/pull/15) [`66ff3b0`](https://github.com/linked-cm/server-utils/commit/66ff3b0c6284025776527700f8d782ace447aec2) Thanks [@flyon](https://github.com/flyon)! - `Server.removeDefaultHeaders(...names)` / `LincdServerProxy.removeDefaultHeaders(...names)` — remove default headers previously set via `addDefaultHeaders` (used by scoped request contexts like a host app's data routing to tear down routing headers on unmount).
 
 ## 1.0.9
 
