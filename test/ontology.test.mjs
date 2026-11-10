@@ -1,16 +1,17 @@
 // Runs against the build output: `npm run build && npm test`.
 //
-// The ontology's prefix label equals its ontologySlug (`server-utils`, the package's publicSlug)
-// and its namespace is `https://linked.cm/ont/server-utils/`. The old `lincd-server-utils` label
-// and module paths stay as deprecated aliases.
+// The ontology is registered by `ontologies/index` under its name `server-utils`, with the
+// namespace `https://linked.cm/ont/server-utils/` and the suggested prefix its data states. It
+// registers no prefix: an app's prefix map holds the prefixes. The old `lincd-server-utils`
+// module path stays as a deprecated alias.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Prefix } from '@_linked/core/utils/Prefix';
+import { getRegisteredOntologies, suggestedPrefixes } from '@_linked/core/utils/Package';
 import * as current from '../lib/esm/ontologies/server-utils.js';
 import * as legacy from '../lib/esm/ontologies/lincd-server-utils.js';
-import '../lib/esm/ontologies/server-utils.register.js';
-import '../lib/esm/ontologies/lincd-server-utils.register.js';
+import '../lib/esm/ontologies/index.js';
 
 const NS = 'https://linked.cm/ont/server-utils/';
 
@@ -20,14 +21,21 @@ describe('server-utils ontology', () => {
     assert.equal(current.serverUtils.Lincd_API_Client.id, NS + 'Lincd_API_Client');
   });
 
-  it('compacts to the server-utils prefix', () => {
-    assert.equal(Prefix.getPrefix(NS), 'server-utils');
-    assert.equal(Prefix.toPrefixed(NS + 'Lincd_API_Client'), 'server-utils:Lincd_API_Client');
-    assert.equal(Prefix.toFull('server-utils:Lincd_API_Client'), NS + 'Lincd_API_Client');
+  it('is registered by the index with its suggested prefix, and adds no prefix', () => {
+    const registration = getRegisteredOntologies().find((r) => r.packageName === '@_linked/server-utils');
+    assert.equal(registration?.name, 'server-utils');
+    assert.equal(registration?.namespace, NS);
+    assert.deepEqual(
+      suggestedPrefixes().filter((p) => p.packageName === '@_linked/server-utils'),
+      [{ packageName: '@_linked/server-utils', name: 'server-utils', namespace: NS, prefix: 'server-utils' }],
+    );
+    assert.equal(Prefix.getPrefix(NS), undefined);
   });
 
-  it('still expands the deprecated lincd-server-utils prefix', () => {
-    assert.equal(Prefix.toFull('lincd-server-utils:Lincd_API_Client'), NS + 'Lincd_API_Client');
+  it('compacts with the prefix an app maps it to', () => {
+    const map = { server_utils: NS };
+    assert.equal(Prefix.toPrefixed(NS + 'Lincd_API_Client', map), 'server_utils:Lincd_API_Client');
+    assert.equal(Prefix.toFull('server_utils:Lincd_API_Client', map), NS + 'Lincd_API_Client');
   });
 
   it('keeps the deprecated module path and terms object', () => {
@@ -35,11 +43,11 @@ describe('server-utils ontology', () => {
     assert.equal(legacy.lincdServerUtils, current.serverUtils);
   });
 
-  it('uses the server-utils prefix in its Turtle data', async () => {
+  it('states its suggested prefix in its Turtle data', async () => {
     const turtle = await readFile(new URL('../lib/esm/data/server-utils.ttl', import.meta.url), 'utf8');
     assert.match(turtle, /^@prefix server-utils: <https:\/\/linked\.cm\/ont\/server-utils\/> \.$/m);
+    assert.match(turtle, /vann:preferredNamespacePrefix "server-utils"/);
     assert.doesNotMatch(turtle, /lincd-server-utils/);
     assert.match(turtle, /^server-utils:Lincd_API_Client$/m);
-    assert.deepEqual(await current.loadData(), [turtle]);
   });
 });

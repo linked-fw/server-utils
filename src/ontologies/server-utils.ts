@@ -1,12 +1,4 @@
-import { Prefix } from '@_linked/core/utils/Prefix';
 import { createNameSpace } from '@_linked/core/utils/NameSpace';
-import { loadOntologyFiles } from '@_linked/core/ontology/loadOntologyFiles';
-
-/** The package's ontology data, relative to this module (Turtle, copied into `lib/` by the build). */
-export const dataFiles = ['../data/server-utils.ttl'];
-
-/** Reads the package's ontology data (server only). */
-export const loadData = () => loadOntologyFiles(import.meta.url, dataFiles);
 
 /**
  * The namespace of this ontology, which can be used to create NamedNodes with URI's not listed in this file.
@@ -21,15 +13,6 @@ export const loadData = () => loadOntologyFiles(import.meta.url, dataFiles);
  * time the server starts.
  */
 export var ns = createNameSpace('https://linked.cm/ont/server-utils/');
-/**
- * The prefix label equals the ontologySlug: `server-utils`. Before 1.7.0 it was
- * `lincd-server-utils`, which stays registered as a deprecated alias so `lincd-server-utils:X`
- * still expands. It is added FIRST: Prefix keeps every prefix → URI entry but only the last
- * URI → prefix one, so the namespace compacts to `server-utils:`.
- */
-Prefix.add('lincd-server-utils', ns('').id);
-Prefix.add('server-utils', ns('').id);
-
 /**
  * The NamedNode of the ontology itself
  */

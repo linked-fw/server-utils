@@ -1,5 +1,5 @@
+import './ontologies/index.js';
 import './shapes/index.js';
-import './ontologies/server-utils.register.js';
 import './utils/Frontend.js';
 import './utils/JSONParser.js';
 import './utils/JSONWriter.js';

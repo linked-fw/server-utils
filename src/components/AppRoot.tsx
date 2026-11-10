@@ -3,10 +3,6 @@ import { Html } from './Html.js';
 import { Body } from './Body.js';
 import { Head } from './Head.js';
 import { useAppContext } from './AppContext.js';
-import { Prefix } from '@_linked/core/utils/Prefix';
-
-//register the prefix for the data root for this app
-Prefix.add(process.env.APP_PREFIX, process.env.DATA_ROOT + '/');
 
 function isReactElement(arg: any): arg is React.ReactElement {
   return arg.hasOwnProperty('type');
