@@ -90,5 +90,11 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "linkedOntologies": {
+    "server-utils": {
+      "namespace": "https://linked.cm/ont/server-utils/",
+      "generated": false
+    }
   }
 }
