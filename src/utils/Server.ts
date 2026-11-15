@@ -6,6 +6,7 @@ import type {
 } from './LincdServerProxy.js';
 import { sharedState } from '@_linked/core/utils/sharedState';
 import { LincdServerProxy } from './LincdServerProxy.js';
+import { resolveCallRoot } from './callRoot.js';
 
 // `export type` — CallConfig is an interface (type-only). A plain
 // `export { CallConfig }` is a runtime value re-export of a symbol erased at
@@ -15,15 +16,15 @@ export type { AuthHandler, CallConfig } from './LincdServerProxy.js';
 export { ServerCallError } from './ServerCallError.js';
 
 /**
- * The proxy every `Server.*` call goes through, and with it the `localServer` that
- * `setLocalServer` gives it. Shared by every copy of this module in the process: `LinkedServer`
+ * The proxy every `Server.*` call goes through (to the root {@link resolveCallRoot} picks), and
+ * with it the `localServer` that `setLocalServer` gives it. Shared by every copy of this module in the process: `LinkedServer`
  * sets the local server on one copy, and a call made through another copy must use it too, not
  * fall back to HTTP. See
  * https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md.
  */
 const serverState = sharedState('@_linked/server-utils', 'Server', () => ({
   proxy: process.env.SITE_ROOT
-    ? LincdServerProxy.getFromURI(process.env.SITE_ROOT)
+    ? LincdServerProxy.getFromURI(resolveCallRoot(process.env.SITE_ROOT))
     : null,
 }));
 
