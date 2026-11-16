@@ -105,7 +105,7 @@ Approved to build 2026-11-17 (names as proposed; a rename is a later refactor). 
   - an `http` call behaves as before (one existing case re-run as control).
   - quick gate: `npm test`.
 
-### Phase 3 — server: the transaction caller (pending)
+### Phase 3 — server: the transaction caller (done on the server branch: 4 new cases, 553 tests green; its range reads ^1.18.0 and its lockfile waits for that release)
 
 - `serverTransactions.ts`: `transactionCaller()` answers `user:<id>` in a delegated context; 401 when the account has no id.
 - README notes; a patch changeset; the server-utils range raised when that version exists (until then the worktree links the branch).
