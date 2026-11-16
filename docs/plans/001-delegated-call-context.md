@@ -1,6 +1,6 @@
 ---
 summary: A third call context, `delegated`, for work done for a known user through something acting on their behalf (a connected agent, an integration). The user is the session user; the generic query plane checks the call instead of trusting it. Two repositories: server-utils (the context and the access check) and server (the transaction caller).
-status: Plan
+status: Implementation
 packages: [server-utils, server]
 ---
 
@@ -77,3 +77,36 @@ await runAsDelegate(userAccount, { id: connectionIri, label: 'Notes agent', via:
 
 1. The name: `delegated` / `runAsDelegate` / `currentDelegate`. Alternatives: `onBehalf`, `agent`.
 2. Whether `@callable('signed-in')` dispatch should ever be reachable for a delegated caller over HTTP. Not in this plan: a delegated caller invokes providers from backend code, which already skips the HTTP declaration check.
+
+## Phases
+
+Approved to build 2026-11-17 (names as proposed; a rename is a later refactor). One commit per phase per repository.
+
+### Phase 1 — server-utils: the context (done: 5 new cases, full suite green)
+
+- `CallContext.ts`: the `delegated` kind, `CallDelegate`, `runAsDelegate`, `currentDelegate`; `requireSessionUser` returns the delegated user.
+- **Validation** (`src/utils/CallContext.test.ts`):
+  - `runAsDelegate` — inside, `getCallContext().kind === 'delegated'`, `requireSessionUser()` is the given account, `currentDelegate()` equals the delegate, `currentRequest()` is `undefined`.
+  - survives `await` and `setTimeout`.
+  - throws `TypeError` without a user account, and without a delegate id.
+  - `currentDelegate()` is `undefined` in `http`, `system` and no context.
+  - nested `runAsSystem` inside a delegated context has no user again.
+  - quick gate: `npm test`.
+
+### Phase 2 — server-utils: the query plane checks delegated calls (pending)
+
+- `QueryAccess.ts`: `checkQueryAccess` (and the graph check) treat `delegated` as a checked call; access contexts carry `delegate`; `request` is `undefined`.
+- README section and a minor changeset.
+- **Validation** (`src/utils/QueryAccess.delegated.test.ts`):
+  - a store with `read: 'none'` refuses a delegated select with 403 (the same query in a `system` context is not refused: control).
+  - a store with no rule admits a delegated select (the user is the session) and a delegated write.
+  - a function rule is called with `linkedAuth.userAccount` equal to the user, `delegate` equal to the delegate and `request === undefined`; returning `false` refuses with 403.
+  - a raw query with `rawQueries: 'off'` is refused 403 for a delegated call.
+  - an `http` call behaves as before (one existing case re-run as control).
+  - quick gate: `npm test`.
+
+### Phase 3 — server: the transaction caller (pending)
+
+- `serverTransactions.ts`: `transactionCaller()` answers `user:<id>` in a delegated context; 401 when the account has no id.
+- README notes; a patch changeset; the server-utils range raised when that version exists (until then the worktree links the branch).
+- **Validation:** the existing transaction-caller test gains `delegated → user:<id>` and `system → 'system'` (control); quick gate `npm test`.
