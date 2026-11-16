@@ -69,7 +69,7 @@ import {
 } from '@_linked/core/utils/ShapeClass';
 import { subClassesOf } from '@_linked/core/ontology/classHierarchy';
 import { LinkedStorage } from '@_linked/core/utils/LinkedStorage';
-import { getCallContext } from './CallContext.js';
+import { getCallContext, type CallDelegate } from './CallContext.js';
 import { ServerCallError } from './ServerCallError.js';
 
 export type QueryOperation = 'select' | 'ask' | 'create' | 'update' | 'delete' | 'graph';
@@ -94,8 +94,12 @@ export interface QueryAccessContext {
   propertyShapes: ReadonlySet<string>;
   /** The store whose rule is being asked. */
   store: unknown;
+  /** The HTTP request, or `undefined` for a delegated call (it has none). */
   request: any;
+  /** The caller's session: `linkedAuth.userAccount`, in an HTTP and in a delegated call. */
   linkedAuth: any;
+  /** Who is acting for the user, in a delegated call (`runAsDelegate`); otherwise `undefined`. */
+  delegate?: CallDelegate;
 }
 
 /** `true` admits the query, `false` refuses it (403, or 401 without a session). */
@@ -120,6 +124,8 @@ export interface GraphAccessContext {
   /** The caller: the request and its `linkedAuth`, as for read and write rules. */
   request: any;
   linkedAuth: any;
+  /** Who is acting for the user, in a delegated call; otherwise `undefined`. */
+  delegate?: CallDelegate;
 }
 
 /** `true` admits the graph query, `false` refuses it (403, or 401 without a session). */
@@ -487,9 +493,10 @@ function refuse(status: number, message: string, log?: string): never {
 /**
  * Apply the store rules to a query about to run on the generic plane.
  *
- * Only a call with an HTTP context is checked; system work and
- * backend-to-backend calls made outside a request are trusted. (The server
- * enters an HTTP context for every request it receives.) Order:
+ * A call with an HTTP context is checked, and so is a delegated call
+ * (`runAsDelegate`): its user is its session, and it has no request. System
+ * work and backend-to-backend calls made outside any context are trusted. (The
+ * server enters an HTTP context for every request it receives.) Order:
  *
  * 1. the operation must match the query's kind (400 otherwise);
  * 2. raw SPARQL → refused (403) when `rawQueries` is `'off'`; otherwise it
@@ -505,9 +512,10 @@ function refuse(status: number, message: string, log?: string): never {
  */
 export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void> {
   const ctx = getCallContext();
-  if (!ctx || ctx.kind !== 'http') return;
-  const request = ctx.request;
-  const linkedAuth = request?.linkedAuth;
+  if (!ctx || (ctx.kind !== 'http' && ctx.kind !== 'delegated')) return;
+  const request = ctx.kind === 'http' ? ctx.request : undefined;
+  const linkedAuth = ctx.kind === 'http' ? request?.linkedAuth : ctx.linkedAuth;
+  const delegate = ctx.kind === 'delegated' ? ctx.delegate : undefined;
   const hasSession = !!linkedAuth?.userAccount;
   const endpoint = o.endpoint ?? o.operation;
   const isMutation = MUTATIONS.has(o.operation);
@@ -544,7 +552,7 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
   }
 
   if (o.operation === 'graph') {
-    await checkGraphAccess(o, request, linkedAuth, hasSession, endpoint);
+    await checkGraphAccess(o, request, linkedAuth, hasSession, endpoint, delegate);
     return;
   }
 
@@ -608,6 +616,7 @@ export async function checkQueryAccess(o: CheckQueryAccessOptions): Promise<void
         store,
         request,
         linkedAuth,
+        ...(delegate ? { delegate } : {}),
       });
     } catch (err) {
       if (ServerCallError.is(err)) throw err;
@@ -647,7 +656,8 @@ async function checkGraphAccess(
   request: any,
   linkedAuth: any,
   hasSession: boolean,
-  endpoint: string
+  endpoint: string,
+  delegate?: CallDelegate
 ): Promise<void> {
   const q = o.ir as { kind: GraphQueryKind; graph?: unknown; recordClass?: unknown };
   if (typeof q.graph !== 'string' || !q.graph || typeof q.recordClass !== 'string' || !q.recordClass) {
@@ -677,6 +687,7 @@ async function checkGraphAccess(
       store,
       request,
       linkedAuth,
+      ...(delegate ? { delegate } : {}),
     });
   } catch (err) {
     if (ServerCallError.is(err)) throw err;

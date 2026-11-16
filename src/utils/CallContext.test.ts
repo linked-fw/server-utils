@@ -1,5 +1,8 @@
 import {
+  currentDelegate,
   currentRequest,
+  currentResponse,
+  runAsDelegate,
   getCallContext,
   httpCallContext,
   runInHttpContext,
@@ -285,3 +288,58 @@ describe('BackendProvider request context', () => {
     expect(seen).toBe(req);
   });
 });
+
+describe('a delegated call', () => {
+  const user = { id: 'https://example.org/account/ada' };
+  const delegate = { id: 'https://example.org/connection/1', label: 'Notes agent', via: 'mcp' };
+
+  it('has the user, the delegate and no request', async () => {
+    await runAsDelegate(user, delegate, async () => {
+      await tick();
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      const ctx = getCallContext();
+      expect(ctx?.kind).toBe('delegated');
+      expect(requireSessionUser()).toBe(user);
+      expect(currentDelegate()).toEqual(delegate);
+      expect(currentRequest()).toBeUndefined();
+      expect(currentResponse()).toBeUndefined();
+      expect((ctx as any).linkedAuth).toEqual({ userAccount: user, delegate });
+    });
+    expect(getCallContext()).toBeUndefined();
+  });
+
+  it('does not exist without a user or without a delegate id', () => {
+    expect(() => runAsDelegate(undefined, delegate, () => 1)).toThrow(TypeError);
+    expect(() => runAsDelegate(null, delegate, () => 1)).toThrow(TypeError);
+    expect(() => runAsDelegate(user, { id: '' }, () => 1)).toThrow(TypeError);
+    expect(() => runAsDelegate(user, undefined as any, () => 1)).toThrow(TypeError);
+  });
+
+  it('keeps the delegate it was entered with', () => {
+    const mutable = { id: 'c1', label: 'first' };
+    runAsDelegate(user, mutable, () => {
+      mutable.label = 'changed';
+      expect(currentDelegate()).toEqual({ id: 'c1', label: 'first' });
+      expect(() => ((currentDelegate() as any).id = 'c2')).toThrow();
+    });
+  });
+
+  it('is the only context with a delegate', () => {
+    expect(currentDelegate()).toBeUndefined();
+    runAsSystem(() => expect(currentDelegate()).toBeUndefined());
+    runWithCallContext(http({ linkedAuth: { userAccount: user } }), () =>
+      expect(currentDelegate()).toBeUndefined()
+    );
+  });
+
+  it('system work started inside it has no user again', () => {
+    runAsDelegate(user, delegate, () => {
+      runAsSystem(() => {
+        expect(currentDelegate()).toBeUndefined();
+        expect(() => requireSessionUser()).toThrow(/system context/);
+      }, 'job');
+      expect(requireSessionUser()).toBe(user);
+    });
+  });
+});
+

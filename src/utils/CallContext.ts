@@ -11,15 +11,36 @@
  *   (`request.linkedAuth`) as the auth provider put it there.
  * - `system`: work with no user behind it — boot, scheduled jobs, lazy provider
  *   loading, and backend-to-backend calls made outside any request.
+ * - `delegated`: work done for a known user by something acting on their
+ *   behalf, outside that user's request (see `runAsDelegate`). It has a user
+ *   and no request. Unlike `system`, it is never trusted: the generic query
+ *   plane checks it as it checks an `http` call.
  *
  * Server-only (it imports `node:async_hooks`).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ServerCallError } from './ServerCallError.js';
 
+/** Who is acting for the user of a delegated call. */
+export interface CallDelegate {
+  /** A stable identity of the delegate, e.g. the IRI of its connection record. */
+  id: string;
+  /** A name to show or log. */
+  label?: string;
+  /** How it reaches the server, e.g. a protocol name. */
+  via?: string;
+}
+
 export type CallContext =
   | { kind: 'http'; request: any; response: any }
-  | { kind: 'system'; reason?: string };
+  | { kind: 'system'; reason?: string }
+  | {
+      kind: 'delegated';
+      userAccount: any;
+      delegate: CallDelegate;
+      /** The same shape a request's `linkedAuth` has, plus the delegate. */
+      linkedAuth: { userAccount: any; delegate: CallDelegate };
+    };
 
 const STORAGE_KEY = Symbol.for('@_linked/server-utils:callContext');
 
@@ -92,6 +113,47 @@ export function runAsSystem<T>(fn: () => T, reason?: string): T {
   return runWithCallContext({ kind: 'system', reason }, fn);
 }
 
+/**
+ * Run `fn` (and everything it awaits or schedules) for `userAccount`, as
+ * `delegate` acting on that user's behalf. Use it for work that is done for a
+ * known user but does not happen inside that user's request: `requireSessionUser()`
+ * returns `userAccount`, `currentDelegate()` returns the delegate, and there is
+ * no request or response.
+ *
+ * The caller is responsible for having established that the delegate may act
+ * for this user (for example by checking a credential). A delegated call is
+ * not trusted the way `system` work is: the generic query plane applies the
+ * store rules to it.
+ */
+export function runAsDelegate<T>(userAccount: any, delegate: CallDelegate, fn: () => T): T {
+  if (userAccount === undefined || userAccount === null) {
+    throw new TypeError('runAsDelegate: a user account is required');
+  }
+  if (!delegate || typeof delegate.id !== 'string' || !delegate.id) {
+    throw new TypeError('runAsDelegate: a delegate with an id is required');
+  }
+  const frozen: CallDelegate = Object.freeze({
+    id: delegate.id,
+    ...(delegate.label !== undefined ? { label: delegate.label } : {}),
+    ...(delegate.via !== undefined ? { via: delegate.via } : {}),
+  });
+  return runWithCallContext(
+    {
+      kind: 'delegated',
+      userAccount,
+      delegate: frozen,
+      linkedAuth: Object.freeze({ userAccount, delegate: frozen }),
+    },
+    fn
+  );
+}
+
+/** Who is acting for the user of the current call, if it is a delegated call. */
+export function currentDelegate(): CallDelegate | undefined {
+  const ctx = getCallContext();
+  return ctx?.kind === 'delegated' ? ctx.delegate : undefined;
+}
+
 /** The HTTP request of the current call, if it is an HTTP call. */
 export function currentRequest(): any | undefined {
   const ctx = getCallContext();
@@ -107,12 +169,14 @@ export function currentResponse(): any | undefined {
 /**
  * The signed-in user's account for the current call.
  *
+ * - delegated call: the user the delegate acts for.
  * - HTTP call without a session: throws a `ServerCallError` with status 401.
  * - system context (or no context at all): throws a plain `Error`. There is no
  *   user to take; a caller that acts for a user has to pass one explicitly.
  */
 export function requireSessionUser(): any {
   const ctx = getCallContext();
+  if (ctx?.kind === 'delegated') return ctx.userAccount;
   if (!ctx || ctx.kind !== 'http') {
     const where = !ctx
       ? 'a call outside any request'
