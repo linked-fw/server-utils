@@ -128,6 +128,35 @@ runAsSystem(() => startNightlyReindex(), 'nightly reindex');
 
 Inside a system context `requireSessionUser()` throws a plain `Error` (there is no user to take); code there that acts for a user gets that user passed explicitly. `getCallContext()` returns `{kind: 'http', request, response}` or `{kind: 'system', reason}`.
 
+### Work for a user, outside their request: `runAsDelegate`
+
+Some work is done for a known user but not inside that user's request: an endpoint that checks a
+per-connection credential and then acts as the person it belongs to, for example. Run it in a
+delegated context:
+
+```ts
+import { runAsDelegate, requireSessionUser, currentDelegate } from '@_linked/server-utils/utils/CallContext';
+
+await runAsDelegate(userAccount, { id: connectionIri, label: 'Notes agent', via: 'mcp' }, async () => {
+  requireSessionUser(); // userAccount
+  currentDelegate();    // { id, label, via }
+});
+```
+
+- `requireSessionUser()` returns the user; `currentDelegate()` returns who is acting for them
+  (`undefined` in every other context). There is no request or response: `currentRequest()`,
+  `currentResponse()` and a provider's `this.request` are `undefined`.
+- `getCallContext()` returns `{kind: 'delegated', userAccount, delegate, linkedAuth}`, where
+  `linkedAuth` is `{userAccount, delegate}`, the shape a request's `linkedAuth` has.
+- **It is never trusted.** Unlike `system` work, a delegated call is checked by the generic query
+  plane exactly like an HTTP call (`checkQueryAccess`): its user is its session. A store's access
+  function gets `linkedAuth.userAccount`, the `delegate`, and `request: undefined`; a function
+  that needs a request must refuse without one.
+- The caller decides that the delegate may act for the user (it checked the credential).
+  `runAsDelegate` throws a `TypeError` without a user account or without a delegate id.
+- Code that branches on `getCallContext().kind` and treats "not `http`" as trusted needs a look
+  before it runs inside a delegated call.
+
 ## LinkedEmail
 
 Send emails from anywhere in the backend.

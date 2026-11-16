@@ -93,7 +93,7 @@ Approved to build 2026-11-17 (names as proposed; a rename is a later refactor). 
   - nested `runAsSystem` inside a delegated context has no user again.
   - quick gate: `npm test`.
 
-### Phase 2 — server-utils: the query plane checks delegated calls (pending)
+### Phase 2 — server-utils: the query plane checks delegated calls (done: 4 new cases in `test/query-access.test.mjs`, where the existing access tests live; 78 jest + 123 node tests green)
 
 - `QueryAccess.ts`: `checkQueryAccess` (and the graph check) treat `delegated` as a checked call; access contexts carry `delegate`; `request` is `undefined`.
 - README section and a minor changeset.
