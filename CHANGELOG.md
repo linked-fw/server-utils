@@ -1,5 +1,21 @@
 # @\_linked/server-utils
 
+## 2.0.0
+
+### Major Changes
+
+- [#127](https://github.com/linked-fw/server-utils/pull/127) [`b08c6e6`](https://github.com/linked-fw/server-utils/commit/b08c6e6ce7694a73b7da981cd03077deb5dfb3bd) Thanks [@flyon](https://github.com/flyon)! - The ontology is registered by `src/ontologies/index.ts` (core's `registerOntologies`), which the package entry imports; the package registers no prefix (an app's prefix map, `linked.app.json`, holds the prefixes; the ontology's data suggests one). `src/package.ts` exports `registerOntologies` instead of `linkedOntology`. Requires the `@_linked/core` major with `registerOntologies`. Removed: `ontologies/server-utils.register`, `ontologies/lincd-server-utils.register`, the `dataFiles` and `loadData` exports of `ontologies/server-utils`, and the `server-utils` and deprecated `lincd-server-utils` prefixes (`server-utils` is not a valid prefix in an app map; the builder maps the namespace to `server_utils`).
+  
+  `AppRoot` no longer adds the `APP_PREFIX` → `DATA_ROOT` prefix when imported: the app's prefix map (`linked.app.json`) is the one map, and an import-time addition could override one of its prefixes. An app that uses its data-root prefix lists it in its `linked.app.json`.
+
+### Patch Changes
+
+- [#127](https://github.com/linked-fw/server-utils/pull/127) [`66071f2`](https://github.com/linked-fw/server-utils/commit/66071f2f580d506f065612f79aa0ff689fb6a5d9) Thanks [@flyon](https://github.com/flyon)! - Comments and docs describe the host app generically.
+
+- [#127](https://github.com/linked-fw/server-utils/pull/127) [`cbe25c4`](https://github.com/linked-fw/server-utils/commit/cbe25c42b30863427876699ff14abeb564225e8e) Thanks [@flyon](https://github.com/flyon)! - The first-party namespace rule in the ontology's comment reads `https://linked.cm/ont/{name}/`, `{name}` being the ontology's name.
+
+- [#127](https://github.com/linked-fw/server-utils/pull/127) [`098a07e`](https://github.com/linked-fw/server-utils/commit/098a07ecfb0625de5977de2dca24dcab88d7aa63) Thanks [@flyon](https://github.com/flyon)! - The ontology is declared in `package.json` `"linkedOntologies"` and its data states its suggested prefix and namespace (`vann:preferredNamespacePrefix`, `vann:preferredNamespaceUri`); the module stays hand-written (`"generated": false`). No import path or export changes.
+
 ## 1.17.0
 
 ### Minor Changes
