@@ -9,7 +9,7 @@ summary: >
 
 # 003 — Bulk mutations authorized over sub-shapes
 
-CN plan 070 (the store infers RDFS classes) makes bulk mutations polymorphic, like select and
+The host app's plan for store-inferred RDFS classes makes bulk mutations polymorphic, like select and
 count: a `deleteAll` on `C` deletes every instance of every subclass of `C`. The access check of
 the generic query plane only looked at the root shape, so a caller allowed on `C` could change
 nodes of a sub-shape whose store refuses them. This report records the fix.
@@ -36,8 +36,8 @@ nodes of a sub-shape whose store refuses them. This report records the fix.
 - **Catalog scope.** The decider shapes, the sub-shapes and their stores are resolved inside
   `withShapeCatalog(catalogOf(ir), …)`, the scope `LinkedStorage.resolveDatasetForQuery` routes
   the query in. The server's `authorizeGenericQuery` calls `checkQueryAccess` outside the
-  query's catalog, so before this change a shape that exists only as data in a catalog (CN's
-  data-only shapes) was unknown to the check and mapped to the default store. That gap is
+  query's catalog, so before this change a shape that exists only as data in a catalog (a host
+  app's data-only shapes) was unknown to the check and mapped to the default store. That gap is
   closed for every query, not only bulk ones: resolving the sub-shapes in the catalog and the
   root outside it would compare stores from two registries and could refuse a single-store bulk
   mutation as spanning. `collectQueryTargets` still runs outside the catalog (unchanged).

@@ -142,7 +142,7 @@ export class LincdServerProxy {
 
   /**
    * Remove one or more default headers previously set via {@link addDefaultHeaders}.
-   * Used by scoped request contexts (e.g. CN's DataRouting) to tear down their
+   * Used by scoped request contexts (e.g. a host app's data routing) to tear down their
    * headers on unmount so they don't leak into subsequent calls.
    *
    * @param names header names to remove
