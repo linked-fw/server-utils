@@ -17,7 +17,7 @@ import {
   getStoreAccess,
   withAccess,
 } from '../lib/esm/utils/QueryAccess.js';
-import { runAsSystem, runWithCallContext } from '../lib/esm/utils/CallContext.js';
+import { runAsDelegate, runAsSystem, runWithCallContext } from '../lib/esm/utils/CallContext.js';
 
 const NS = 'https://linked.cm/shape/qa-test/';
 const Thing = NS + 'Thing';
@@ -260,6 +260,55 @@ describe('store access rules', () => {
     assert.throws(() => withAccess({}, { read: 'public' }), TypeError);
     assert.throws(() => withAccess(null, {}), TypeError);
     assert.equal(getStoreAccess({}), undefined);
+  });
+});
+
+describe('a delegated call (runAsDelegate)', () => {
+  const user = { id: 'http://ex/me' };
+  const delegate = { id: 'http://ex/connection/1', label: 'Notes agent', via: 'mcp' };
+  const asDelegate = (ir, operation = 'select', extra = {}) =>
+    runAsDelegate(user, delegate, () => checkQueryAccess({ operation, query: {}, ir, mode: 'enforce', ...extra }));
+
+  it("is checked like an http call, never trusted like system work", async () => {
+    quiet();
+    pin(withAccess({ name: 'secrets' }, { read: 'none', write: 'none' }), SecretShape);
+    assert.equal(await statusOf(asDelegate(scan(Secret))), 403);
+    // control: the same query as system work is not checked
+    assert.equal(
+      await statusOf(runAsSystem(() => checkQueryAccess({ operation: 'select', query: {}, ir: scan(Secret), mode: 'enforce' }))),
+      'ok'
+    );
+    // control: an http call is refused the same way
+    assert.equal(await statusOf(check(signedIn, scan(Secret))), 403);
+  });
+
+  it('has its user as its session: a store without a rule admits reads and writes', async () => {
+    assert.equal(await statusOf(asDelegate(selectName)), 'ok');
+    assert.equal(await statusOf(asDelegate(createNestedAccount, 'create')), 'ok');
+  });
+
+  it('gives a function rule the user, the delegate and no request', async () => {
+    quiet();
+    const seen = [];
+    withAccess(appStore, { read: (ctx) => (seen.push(ctx), true), write: (ctx) => ctx.delegate === undefined });
+    assert.equal(await statusOf(asDelegate(selectName)), 'ok');
+    assert.equal(seen[0].linkedAuth.userAccount, user);
+    assert.deepEqual(seen[0].delegate, delegate);
+    assert.deepEqual(seen[0].linkedAuth.delegate, delegate);
+    assert.equal(seen[0].request, undefined);
+    // a rule can refuse delegates and still admit the user's own request
+    assert.equal(await statusOf(asDelegate(updateLinkAccount, 'update')), 403);
+    assert.equal(await statusOf(check(signedIn, updateLinkAccount, 'update')), 'ok');
+    // an http call carries no delegate
+    await check(signedIn, selectName);
+    assert.equal('delegate' in seen[1], false);
+  });
+
+  it('is refused raw SPARQL when it is turned off, and a mismatched kind', async () => {
+    quiet();
+    assert.equal(await statusOf(asDelegate(undefined, 'select', { raw: true, rawQueries: 'off' })), 403);
+    assert.equal(await statusOf(asDelegate(undefined, 'select', { raw: true })), 'ok');
+    assert.equal(await statusOf(asDelegate(deleteAccount, 'select')), 400);
   });
 });
 
